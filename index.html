@@ -390,7 +390,10 @@ textarea.inp{min-height:72px;resize:vertical;line-height:1.6}
   .row{padding:9px 9px;gap:7px}
   #navFab{width:44px;height:44px;font-size:18px;left:10px;bottom:16px}
   .modal-box{padding:18px;border-radius:24px}
-  .stat{padding:10px 11px}
+  .stat{padding:9px 10px}
+  .grid.c3.statgrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .grid.c3.statgrid .stat .k{font-size:calc(var(--fs-sm) - 2px)}
+  .grid.c3.statgrid .stat .v{font-size:calc(var(--fs-h1) * .78)}
 }
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
 
@@ -1157,7 +1160,7 @@ function renderCountdown(){
 
   var wk = weekStats(7);
   html += '<div class="card"><div class="card-head"><h2>🔥 最近 7 天</h2><span class="tag mint">坚持就是胜利</span></div>' +
-          '<div class="grid c3">' +
+          '<div class="grid c3 statgrid">' +
           '<div class="stat"><div class="k">做题</div><div class="v">' + wk.count + '<small>道</small></div></div>' +
           '<div class="stat"><div class="k">时长</div><div class="v">' + wk.min + '<small>分钟</small></div></div>' +
           '<div class="stat"><div class="k">正确率</div><div class="v">' + (wk.count ? Math.round(wk.right / wk.count * 100) : 0) + '<small>%</small></div></div>' +
@@ -1185,7 +1188,7 @@ function renderPlans(){
   html += '<div class="card"><div class="card-head"><h2>🎯 今日进度总览</h2><span class="tag">' + done + ' / ' + list.length + '</span>' +
           '<span class="right"><span class="pct">' + Math.round(rate * 100) + '%</span></span></div>' +
           '<div class="bar lg"><i style="width:' + Math.round(rate * 100) + '%"></i></div>' +
-          '<div class="grid c3" style="margin-top:14px">' +
+          '<div class="grid c3 statgrid" style="margin-top:14px">' +
           '<div class="stat"><div class="k">已完成</div><div class="v">' + done + '<small>项</small></div></div>' +
           '<div class="stat"><div class="k">待完成</div><div class="v">' + (list.length - done) + '<small>项</small></div></div>' +
           '<div class="stat"><div class="k">逾期未完成</div><div class="v" style="color:' + (ov.length ? '#ef7d6c' : 'inherit') + '">' + ov.length + '<small>项</small></div></div>' +
@@ -1403,7 +1406,7 @@ function renderStats(){
   var html = pageHead('📈', '每日统计', '');
 
   html += '<div class="card"><div class="card-head"><h2>📅 今日汇总</h2><span class="tag">' + day + '</span></div>' +
-    '<div class="grid c3">' +
+    '<div class="grid c3 statgrid">' +
     '<div class="stat"><div class="k">做题数</div><div class="v">' + tot.count + '<small>道</small></div></div>' +
     '<div class="stat"><div class="k">学习时长</div><div class="v">' + tot.min + '<small>分钟</small></div></div>' +
     '<div class="stat"><div class="k">正确率</div><div class="v">' + (tot.count ? Math.round(tot.right / tot.count * 100) : 0) + '<small>%</small></div></div>' +
