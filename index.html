@@ -803,6 +803,7 @@ const DEF_STATE = {
   wrong:[],
   quizLog:{},
   skillsDone:{},
+  redoLog:[],
   _skillsVer:1,
   archiveOffset:0,
   settings:{ font:'m', pinned:true, sync:{ url:'', user:'', pass:'', lastSync:'', connected:false },
@@ -2133,6 +2134,75 @@ function renderSlBig(){
   return html;
 }
 
+/* ================= 错题重做 ================= */
+function dueRedoItems(n){
+  var now = state.wrong.filter(function(w){ return !w.mastered; });
+  var due = now.filter(function(w){ return daysSince(w.date) >= 3; })
+               .sort(function(a, b){ return a.date < b.date ? -1 : 1; });
+  var rest = now.filter(function(w){ return daysSince(w.date) < 3; })
+                .sort(function(a, b){ return (a.lastRedo || '') < (b.lastRedo || '') ? -1 : 1; });
+  return due.concat(rest).slice(0, n || 5);
+}
+function redoStatsWeek(){
+  var cur = weekBounds(0), log = state.redoLog || [];
+  var inWeek = log.filter(function(r){ return parseDate(r.date) >= cur.start && parseDate(r.date) <= cur.end; });
+  var pass = inWeek.filter(function(r){ return r.ok; }).length;
+  return { n:inWeek.length, pass:pass, rate:inWeek.length ? pass / inWeek.length : null };
+}
+var redoQueue = [], redoIndex = 0, redoResult = { ok:0, fail:0 };
+function startRedo(){
+  redoQueue = dueRedoItems(5);
+  if(!redoQueue.length){ toast('没有需要重做的错题 🐰'); return; }
+  redoIndex = 0; redoResult = { ok:0, fail:0 };
+  renderRedoCard();
+}
+function renderRedoCard(){
+  if(redoIndex >= redoQueue.length){ finishRedo(); return; }
+  var w = redoQueue[redoIndex];
+  var html = '<h3>🔁 重做 ' + (redoIndex + 1) + ' / ' + redoQueue.length + '</h3>' +
+    '<div class="desc">' + esc(w.cat) + (w.type ? ' · ' + esc(w.type) : '') + '　' + esc(w.date) + ' 录入</div>' +
+    '<div class="item" style="background:#fffdf9"><h3>' + esc(w.title) + '</h3>' +
+    ((w.reasons && w.reasons.length) ? '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">' +
+      w.reasons.map(function(r){ return '<span class="chip on" style="cursor:default;font-size:calc(var(--fs-sm) - 2px)">' + esc(r) + '</span>'; }).join('') + '</div>' : '') +
+    ((w.images && w.images.length) ? '<div class="wrong-imgs">' + w.images.map(function(s){ return '<img src="' + s + '" style="cursor:default" alt="题目图片">'; }).join('') + '</div>' : '') +
+    '</div>';
+
+  if(w.choices && w.choices.length >= 2){
+    html += '<div class="tiny muted" style="margin-bottom:6px">选一个答案：</div><div id="redoOpts">';
+    w.choices.forEach(function(c, i){
+      html += '<label class="opt" data-act="redo-answer" data-i="' + i + '">' + String.fromCharCode(65 + i) + '. ' + esc(c) + '</label>';
+    });
+    html += '</div>';
+  } else {
+    html += '<div class="tiny muted" style="margin-bottom:8px">这道题没录选项，按自评：先在纸上做一遍，再选。</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+      '<button class="btn primary" data-act="redo-self" data-ok="1">✅ 做对了</button>' +
+      '<button class="btn coral" data-act="redo-self" data-ok="0">❌ 还不会</button></div>';
+  }
+  html += '<div id="redoReveal" style="display:none"></div>';
+  html += '<div class="modal-actions"><button class="btn ghost sm" data-act="redo-skip">跳过这题</button>' +
+          '<button class="btn ghost sm" data-act="modal-close">结束重做</button></div>';
+  openModal(html);
+}
+function revealRedo(w, pass){
+  var box = $('#redoReveal');
+  if(!box) return;
+  var html = '<div class="explain" style="margin-top:10px">' +
+    (pass ? '✅ 做对了' : '❌ 还不会，' + (w.reasons && w.reasons.length ? '错因还是：' + esc(w.reasons.join('、')) : '记下这次的错因')) +
+    (w.note ? '<br>📝 ' + esc(w.note) : '') + '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
+    (pass ? '<button class="btn primary" data-act="redo-next" data-master="1">标记已攻克并下一题</button>' :
+            '<button class="btn" data-act="redo-next" data-master="0">下一题（重置 3 天计时）</button>') +
+    '<button class="btn ghost" data-act="redo-next" data-master="' + (pass ? '0' : '1') + '">' + (pass ? '先不标攻克' : '直接标攻克') + '</button></div>';
+  box.innerHTML = html; box.style.display = 'block';
+}
+function finishRedo(){
+  var total = redoResult.ok + redoResult.fail;
+  var rate = total ? Math.round(redoResult.ok / total * 100) : 0;
+  openModal('<h3>🔁 重做完成</h3><div class="desc">本轮 ' + total + ' 题，对 ' + redoResult.ok + '，错 ' + redoResult.fail + '，通过率 ' + rate + '%</div>' +
+    '<div class="explain">' + (rate >= 80 ? '这轮很稳，本周可以把重心放到新题型上。' : (rate >= 50 ? '一半一半：错的这几道说明方法还没固化，明天再刷一遍同一批。' : '通过率偏低：先别加新题，把这几道的解析重写一遍再重做。')) + '</div>' +
+    '<div class="modal-actions"><button class="btn primary" data-act="modal-close">好的</button></div>');
+}
 /* ================= 页面：错题本 ================= */
 function weekStart(){
   var d = new Date(); var w = d.getDay() || 7; d.setDate(d.getDate() - w + 1);
@@ -2163,7 +2233,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 02:20';
+var APP_BUILD = '2026-11-08 · 02:45';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -2210,6 +2280,8 @@ function buildWeekReport(){
   }
   lines.push('');
   lines.push('📊 本周学习：做题 ' + st.count + ' 道 · ' + st.min + ' 分钟 · 正确率 ' + (st.count ? Math.round(st.right / st.count * 100) + '%' : '—'));
+  var rs2 = redoStatsWeek();
+  if(rs2.n) lines.push('🔁 本周重做 ' + rs2.n + ' 题，一次通过 ' + rs2.pass + ' 题（' + Math.round(rs2.rate * 100) + '%）');
   lines.push('📕 累计 ' + state.wrong.length + ' 题，未攻克 ' + an.unmastered + ' 题，≥3 天待复做 ' + an.pending + ' 题');
   if(pending.length){
     lines.push('');
@@ -2266,6 +2338,19 @@ function renderWrong(){
   var an = analyzeWeek();
   var html = pageHead('📕', '错题本', '');
 
+  /* —— 本周重做 —— */
+  var due = dueRedoItems(99).filter(function(w){ return daysSince(w.date) >= 3; });
+  var rs = redoStatsWeek();
+  html += '<div class="card"><div class="card-head"><h2>🔁 本周重做</h2><span class="tag warm">到期 ' + due.length + ' 题</span>' +
+    '<span class="right"><span class="tiny muted">' + (rs.n ? ('本周已做 ' + rs.n + ' 题 · 通过率 ' + Math.round(rs.rate * 100) + '%') : '本周还没重做') + '</span></span></div>' +
+    '<div class="tiny muted" style="line-height:1.8">' + (due.length
+      ? ('有 ' + due.length + ' 道错题距今 ≥3 天、还没攻克。每轮抽 5 道：答对才建议标"已攻克"，答错自动重置 3 天计时。')
+      : '暂时没有到期错题。录入 3 天后会自动出现在这里。') + '</div>' +
+    '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
+    '<button class="btn primary"' + (state.wrong.filter(function(w){return !w.mastered;}).length ? '' : ' disabled') + ' data-act="redo-start">▶️ 开始重做 5 题</button>' +
+    (due.length ? '<button class="btn" data-act="redo-start-due">只做到期的 ' + due.length + ' 题</button>' : '') +
+    '</div></div>';
+
   /* —— 本周分析 —— */
   html += '<div class="card"><div class="card-head"><h2>🔬 本周错因分析</h2>' +
     '<span class="tag">' + fmtMD(an.range.start) + '–' + fmtMD(an.range.end) + '</span>' +
@@ -2300,6 +2385,10 @@ function renderWrong(){
     }
     if(an.untyped){
       html += '<div class="tiny" style="margin-top:10px;color:#a8811f">有 ' + an.untyped + ' 题还没选题型，补上以后分析会更准。</div>';
+    }
+    if(rs.n){
+      html += '<div class="tiny" style="margin-top:12px">🔁 重做情况：本周做了 ' + rs.n + ' 题，一次通过 ' + rs.pass + ' 题（通过率 ' + Math.round(rs.rate * 100) + '%）。' +
+        (rs.rate < 0.6 ? '通过率偏低，说明这几道的方法还没固化，建议明天把同一批再做一遍。' : '保持这个节奏。') + '</div>';
     }
     html += '<div style="margin-top:14px"><div class="tiny" style="font-weight:700;margin-bottom:6px">💡 本周学习建议</div>' +
       an.advice.map(function(a){ return '<div class="item" style="margin-bottom:7px"><p class="tiny" style="margin:0;line-height:1.8">' + esc(a) + '</p></div>'; }).join('') +
@@ -2451,6 +2540,24 @@ function openWrongAdd(cat, title, opts){
     '<div class="field"><label>板块</label><select class="inp" id="wCat" data-act="wcat-change">' + cats + '</select></div>' +
     '<div class="field"><label>题型 / 考点（二级归类）</label><select class="inp" id="wType">' +
       '<option value="">（可不选）</option>' + typeOptions(curCat, curType) + '</select></div>' +
+    '<details class="field" style="border:1px dashed #ecdccb;border-radius:12px;padding:8px 10px">' +
+    '<summary style="cursor:pointer;font-size:var(--fs-sm);color:var(--ink2);font-weight:600">补选项（可选 · 填了就能做"选择题式重做"）</summary>' +
+    (function(){
+      var cs = (edit && edit.choices) ? edit.choices : [];
+      var s = '<div style="margin-top:8px">';
+      for(var i = 0; i < 4; i++){
+        s += '<input class="inp" id="wOpt' + i + '" style="margin-bottom:6px" maxlength="80" placeholder="' +
+             String.fromCharCode(65 + i) + ' 选项内容（可留空）" value="' + esc(cs[i] || '') + '">';
+      }
+      s += '</div><div class="field" style="margin-top:4px"><label>正确答案</label><select class="inp" id="wAns">';
+      var ansI = (edit && typeof edit.answer === 'number') ? edit.answer : 0;
+      for(var j = 0; j < 4; j++){
+        s += '<option value="' + j + '"' + (j === ansI ? ' selected' : '') + '>' + String.fromCharCode(65 + j) + '</option>';
+      }
+      s += '</select></div>';
+      return s;
+    })() +
+    '</details>' +
     '<div class="field"><label>错因（可多选）</label><div id="wReasons" style="display:flex;gap:6px;flex-wrap:wrap">' + chips + '</div>' +
     '<div class="tiny muted" style="margin-top:5px">选不准就选"蒙的"——周分析里会把它单独算一类</div></div>' +
     '<div class="field"><label>个人备注（正确思路）</label><textarea class="inp" id="wNote" placeholder="例：公式应为 现期×r/(1+r)，我少除了 (1+r)">' + esc(edit ? (edit.note || '') : '') + '</textarea></div>' +
@@ -2816,6 +2923,54 @@ document.addEventListener('click', function(e){
     return;
   }
   if(act === 'wrong-add'){ openWrongAdd('', ''); return; }
+  if(act === 'redo-start'){ startRedo(); return; }
+  if(act === 'redo-start-due'){
+    redoQueue = dueRedoItems(99).filter(function(w){ return daysSince(w.date) >= 3; });
+    if(!redoQueue.length){ toast('没有到期的错题'); return; }
+    redoQueue = redoQueue.slice(0, 10);
+    redoIndex = 0; redoResult = { ok:0, fail:0 };
+    renderRedoCard();
+    return;
+  }
+  if(act === 'redo-answer'){
+    var wcur = redoQueue[redoIndex];
+    if(!wcur || wcur._answered) return;
+    var pick = parseInt(t.getAttribute('data-i'), 10);
+    wcur._answered = 1;
+    var okAns = pick === (wcur.answer || 0);
+    Array.prototype.slice.call(document.querySelectorAll('#redoOpts .opt')).forEach(function(el, i){
+      el.classList.remove('opt');
+      if(i === (wcur.answer || 0)) el.classList.add('right');
+      else if(i === pick) el.classList.add('wrong');
+    });
+    if(okAns) redoResult.ok++; else redoResult.fail++;
+    revealRedo(wcur, okAns);
+    return;
+  }
+  if(act === 'redo-self'){
+    var ws = redoQueue[redoIndex];
+    if(!ws || ws._answered) return;
+    ws._answered = 1;
+    var okSelf = t.getAttribute('data-ok') === '1';
+    if(okSelf) redoResult.ok++; else redoResult.fail++;
+    revealRedo(ws, okSelf);
+    return;
+  }
+  if(act === 'redo-next'){
+    var wn = redoQueue[redoIndex];
+    if(wn){
+      wn.lastRedo = todayStr();
+      if(t.getAttribute('data-master') === '1'){ wn.mastered = true; wn.redoPass = (wn.redoPass || 0) + 1; }
+      else { wn.date = todayStr(); wn.redoFail = (wn.redoFail || 0) + 1; wn.mastered = false; }
+      state.redoLog = state.redoLog || [];
+      state.redoLog.push({ id:wn.id, date:todayStr(), ok:!!(wn.mastered) });
+      saveNow();
+    }
+    redoIndex++;
+    renderRedoCard();
+    return;
+  }
+  if(act === 'redo-skip'){ redoIndex++; renderRedoCard(); return; }
   if(act === 'reason-toggle'){
     var rr = t.getAttribute('data-r');
     var k = tmpReasons.indexOf(rr);
@@ -2832,11 +2987,16 @@ document.addEventListener('click', function(e){
     var ti = ($('#wTitle') || {}).value || '';
     if(!ti.trim()){ toast('请填写题目标题'); return; }
     var editId = t.getAttribute('data-id');
+    var opts = [];
+    for(var oi = 0; oi < 4; oi++){ var ov = $('#wOpt' + oi); if(ov && ov.value.trim()) opts.push(ov.value.trim()); }
+    var ansSel = parseInt((($('#wAns') || {}).value) || '0', 10);
     var payload = {
       title:ti.trim(),
       cat:($('#wCat') || {}).value || '常识',
       type:($('#wType') || {}).value || '',
       reasons:tmpReasons.slice(),
+      choices: opts.length >= 2 ? opts : [],
+      answer: opts.length >= 2 ? Math.min(ansSel, opts.length - 1) : 0,
       note:(($('#wNote') || {}).value || '').trim(),
       transcript:(($('#wVoice') || {}).value || '').trim(),
       images:tmpImgs.slice()
@@ -2856,7 +3016,27 @@ document.addEventListener('click', function(e){
   if(act === 'voice'){ startVoice(t.getAttribute('data-target')); return; }
   if(act === 'wrong-master'){
     var w = state.wrong.filter(function(x){ return x.id === id; })[0];
-    if(w){ w.mastered = !w.mastered; save(); rerender(); }
+    if(!w) return;
+    if(w.mastered){ w.mastered = false; save(); rerender(); return; }
+    if(!w.redoPass){
+      openModal('<h3>先重做一次？</h3><div class="desc">这道题还没重做过。答对再标"已攻克"，记忆才靠得住。</div>' +
+        '<div class="modal-actions"><button class="btn ghost" data-act="modal-close">取消</button>' +
+        '<button class="btn" data-act="wrong-master-force" data-id="' + w.id + '">仍然标记</button>' +
+        '<button class="btn primary" data-act="wrong-master-redo" data-id="' + w.id + '">去做这道题</button></div>');
+      return;
+    }
+    w.mastered = true; save(); rerender();
+    return;
+  }
+  if(act === 'wrong-master-force'){
+    var wf = state.wrong.filter(function(x){ return x.id === id; })[0];
+    if(wf){ wf.mastered = true; wf.redoPass = wf.redoPass || 0; save(); closeModal(); rerender(); toast('已标记（未经重做）'); }
+    return;
+  }
+  if(act === 'wrong-master-redo'){
+    var wr = state.wrong.filter(function(x){ return x.id === id; })[0];
+    closeModal();
+    if(wr){ redoQueue = [wr]; redoIndex = 0; redoResult = { ok:0, fail:0 }; renderRedoCard(); }
     return;
   }
   if(act === 'wrong-del'){
@@ -3573,6 +3753,13 @@ function boot(){
   try{ renderProfile(); }catch(e){}
   try{ applySettings(); }catch(e){}
   route();
+  try{
+    var dueN = state.wrong.filter(function(w){ return !w.mastered && daysSince(w.date) >= 3; }).length;
+    if(dueN >= 3 && state.lastRedoRemind !== todayStr()){
+      state.lastRedoRemind = todayStr(); save();
+      setTimeout(function(){ toast('🔁 有 ' + dueN + ' 道错题到期了，去错题本重做一轮'); }, 2500);
+    }
+  }catch(e){}
   try{ maybeAutoWeeklyPush(); }catch(e){}
   setTimeout(afterBootChecks, 700);
 }
