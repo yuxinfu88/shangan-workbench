@@ -1312,15 +1312,30 @@ const SKILLS = [
 ];
 
 var teacherCache = null;
-function skillModOf(name){
-  var m = ['判断','图推','言语','资料','数量','申论','面试','综应','综B','公安','政治','常识','执法'];
-  for(var i = 0; i < m.length; i++){ if(String(name).indexOf(m[i]) >= 0) return m[i]; }
-  return '其他';
+function skillModOf(text){
+  var s = String(text || '');
+  var m = ['判断推理','判断','图推','资料','言语','数量','申论','综应','面试','公安','政治','常识','执法'];
+  var best = '', pos = 1e9;
+  m.forEach(function(k){ var p = s.indexOf(k); if(p >= 0 && p < pos){ pos = p; best = k === '判断推理' ? '判断' : k; } });
+  return best || '其他';
+}
+function skillTail(name){
+  var base = String(name || '').replace(/\.(md|markdown|txt)$/i, '');
+  var parts = base.split(/[-—–_·]/);
+  var tail = parts.length > 1 ? parts[parts.length - 1] : '';
+  return tail.length <= 8 ? tail : '';
 }
 function loadTeachers(){
   if(teacherCache) return Promise.resolve(teacherCache);
   return idbGet('skillindex').then(function(list){
-    teacherCache = (list || []).sort(function(a, b){ return (a.mod + a.name) < (b.mod + b.name) ? -1 : 1; });
+    list = list || [];
+    var changed = false;
+    list.forEach(function(t){
+      var want = skillModOf(skillTail(t.name)) || skillModOf(t.name) || t.mod || '其他';
+      if(t.mod !== want){ t.mod = want; changed = true; }
+    });
+    if(changed) idbPut('skillindex', list).catch(function(){});
+    teacherCache = list.sort(function(a, b){ return (a.mod + a.name) < (b.mod + b.name) ? -1 : 1; });
     return teacherCache;
   }).catch(function(){ teacherCache = []; return teacherCache; });
 }
@@ -1379,7 +1394,8 @@ function parseSkillFile(name, text){
     var h = text.match(/^#\s+(.+)$/m);
     if(h) desc = h[1].slice(0, 120);
   }
-  return { name: title, desc: desc, mod: skillModOf(title + ' ' + desc) };
+  var mod = skillModOf(skillTail(title)) || skillModOf(title) || skillModOf(desc);
+  return { name: title, desc: desc, mod: mod };
 }
 function importSkillFiles(files, fromDir){
   var all = Array.prototype.slice.call(files || []);
@@ -2024,7 +2040,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 01:05';
+var APP_BUILD = '2026-11-08 · 01:15';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
