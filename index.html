@@ -412,6 +412,14 @@ textarea.inp{min-height:72px;resize:vertical;line-height:1.6}
 .skill .foot{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
 .skill .time{font-size:calc(var(--fs-sm) - 2px);color:var(--ink3)}
 
+/* 老师技能库 */
+.imp{border:2px dashed #cfe3f2;border-radius:var(--r-md);padding:16px;text-align:center;background:#f7fbfe}
+.imp b{color:#3d87b8}
+.tcard{background:var(--card2);border:1px solid #f6ecdd;border-radius:var(--r-md);padding:12px 14px;margin-bottom:9px}
+.tcard .tname{font-weight:800;font-size:calc(var(--fs-body) + .5px);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.tcard .tdesc{font-size:calc(var(--fs-sm) - .5px);color:var(--ink2);line-height:1.7;margin:5px 0 8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.mod-chip{font-size:calc(var(--fs-sm) - 2px);padding:2px 8px;border-radius:999px;background:#eef6fc;color:#4a8dba}
+
 /* AI 助教 */
 #aiFab{position:fixed;right:22px;bottom:26px;width:56px;height:56px;border-radius:50%;
   background:linear-gradient(135deg,#8ec9ef,#67c39c);color:#fff;font-size:24px;display:grid;place-items:center;
@@ -788,6 +796,7 @@ const DEF_STATE = {
   wrong:[],
   quizLog:{},
   skillsDone:{},
+  _skillsVer:1,
   archiveOffset:0,
   settings:{ font:'m', pinned:true, sync:{ url:'', user:'', pass:'', lastSync:'', connected:false },
             gh:{ token:'', gistId:'', auto:false, lastSync:'' },
@@ -1302,9 +1311,132 @@ const SKILLS = [
    mantra:'分论点站得住，文章就站得住。'}
 ];
 
+var teacherCache = null;
+function skillModOf(name){
+  var m = ['判断','图推','言语','资料','数量','申论','面试','综应','综B','公安','政治','常识','执法'];
+  for(var i = 0; i < m.length; i++){ if(String(name).indexOf(m[i]) >= 0) return m[i]; }
+  return '其他';
+}
+function loadTeachers(){
+  if(teacherCache) return Promise.resolve(teacherCache);
+  return idbGet('skillindex').then(function(list){
+    teacherCache = (list || []).sort(function(a, b){ return (a.mod + a.name) < (b.mod + b.name) ? -1 : 1; });
+    return teacherCache;
+  }).catch(function(){ teacherCache = []; return teacherCache; });
+}
+function skillsLibraryHTML(){
+  return '<div class="card"><div class="card-head"><h2>📚 老师技能库</h2><span class="tag">本机</span>' +
+    '<span class="right"><button class="btn sm primary" data-act="skill-import">＋ 导入 .md</button></span></div>' +
+    '<div class="imp" id="impZone">' +
+    '<div style="font-size:22px">📥</div>' +
+    '<b>把老师技能包（.md）拖进来或点这里选择</b>' +
+    '<div class="tiny muted" style="margin-top:6px;line-height:1.7">支持多选，一次可以导入整批。<b>全文只存在这台设备</b>（IndexedDB），不上传、不进仓库、不进备份。<br>导入后可点「问这位老师」，AI 会用他的方法论讲题。</div>' +
+    '<input type="file" id="skillFile" accept=".md,.markdown,.txt" multiple style="display:none">' +
+    '</div>' +
+    '<div id="teacherList"><div class="tiny muted" style="margin-top:10px">读取中…</div></div></div>';
+}
+function renderTeacherList(){
+  var box = $('#teacherList');
+  if(!box) return;
+  loadTeachers().then(function(list){
+    if(!list.length){
+      box.innerHTML = '<div class="empty" style="padding:14px"><span class="big">🗂️</span>还没导入老师技能包<br><span class="tiny">点上面的框选文件，或把 .md 直接拖到框里</span></div>';
+      return;
+    }
+    var byMod = {};
+    list.forEach(function(t){ (byMod[t.mod] = byMod[t.mod] || []).push(t); });
+    var out = '<div class="tiny muted" style="margin-top:10px">已导入 ' + list.length + ' 位老师／' + Object.keys(byMod).length + ' 个板块</div>';
+    Object.keys(byMod).forEach(function(mod){
+      out += '<div style="margin:12px 0 6px;font-weight:800;font-size:var(--fs-body)">' + esc(mod) + '　<span class="mini">' + byMod[mod].length + ' 位</span></div>';
+      byMod[mod].forEach(function(t){
+        out += '<div class="tcard"><div class="tname">' + esc(t.name) + '<span class="mod-chip">' + esc(t.mod) + '</span>' +
+          '<span class="mini">' + Math.round((t.size || 0) / 1024) + 'KB</span></div>' +
+          '<div class="tdesc">' + esc(t.desc || '（这份文件没有写 description）') + '</div>' +
+          '<div style="display:flex;gap:7px;flex-wrap:wrap">' +
+          '<button class="btn sm primary" data-act="teacher-ask" data-id="' + esc(t.id) + '">🤖 问这位老师</button>' +
+          '<button class="btn sm ghost" data-act="teacher-preview" data-id="' + esc(t.id) + '">📄 看方法论摘要</button>' +
+          '<button class="btn sm ghost" data-act="teacher-del" data-id="' + esc(t.id) + '">🗑</button></div></div>';
+      });
+    });
+    box.innerHTML = out;
+  });
+}
+function parseSkillFile(name, text){
+  var desc = '', title = name.replace(/\.(md|markdown|txt)$/i, '');
+  var m = text.match(/^---\r?\n([\s\S]{0,4000}?)\r?\n---/);
+  var fm = m ? m[1] : '';
+  var dm = fm.match(/description:\s*(\|[\s\S]*?)(?=\w+:|$)/);
+  if(dm){
+    desc = dm[1].split('\n').map(function(s){ return s.trim(); }).filter(Boolean).join(' ')
+             .replace(/^\|\s*/, '').replace(/\s+/g, ' ').slice(0, 260);
+  }
+  if(!desc){
+    var h = text.match(/^#\s+(.+)$/m);
+    if(h) desc = h[1].slice(0, 120);
+  }
+  return { name: title, desc: desc, mod: skillModOf(title + ' ' + desc) };
+}
+function importSkillFiles(files){
+  var arr = Array.prototype.slice.call(files || []);
+  if(!arr.length) return;
+  var done = 0, added = 0;
+  arr.forEach(function(f){
+    var fr = new FileReader();
+    fr.onload = function(){
+      try{
+        var text = String(fr.result || '');
+        var meta = parseSkillFile(f.name, text);
+        var id = 'sk_' + f.name.replace(/[^\w\u4e00-\u9fa5]+/g, '_').slice(0, 40) + '_' + f.size;
+        idbPut('skill:' + id, { id:id, name:meta.name, mod:meta.mod, desc:meta.desc, size:f.size, text:text }).then(function(){
+          return idbGet('skillindex');
+        }).then(function(list){
+          list = list || [];
+          if(!list.filter(function(x){ return x.id === id; }).length){
+            list.push({ id:id, name:meta.name, mod:meta.mod, desc:meta.desc, size:f.size });
+            added++;
+          }
+          return idbPut('skillindex', list);
+        }).catch(function(){}).finally(function(){
+          done++;
+          if(done === arr.length){
+            teacherCache = null;
+            renderTeacherList();
+            toast('导入完成：' + (added || arr.length) + ' 个文件');
+          }
+        });
+      }catch(e){ done++; }
+    };
+    fr.onerror = function(){ done++; };
+    fr.readAsText(f);
+  });
+}
+function openTeacherSkill(id){
+  idbGet('skill:' + id).then(function(rec){
+    if(!rec){ toast('读不到这份技能'); return; }
+    var body = rec.text || '';
+    // 去掉 frontmatter，压缩空白，限制长度避免超 token
+    body = body.replace(/^---[\s\S]*?---/, '').replace(/\n{3,}/g, '\n\n').slice(0, 11000);
+    openTeacher('用「' + rec.name + '」的方法给我讲讲：今天这一页的内容，最该先掌握的是什么？',
+      true, '以下是『' + rec.name + '』的解题方法论资料，回答时按它的步骤与术语来讲：\n' + body);
+  });
+}
+function previewTeacherSkill(id){
+  idbGet('skill:' + id).then(function(rec){
+    if(!rec){ toast('读不到'); return; }
+    var body = (rec.text || '').replace(/^---[\s\S]*?---/, '');
+    var heads = body.split('\n').filter(function(l){ return /^#{2,3}\s/.test(l); }).slice(0, 40);
+    openModal('<h3>📄 ' + esc(rec.name) + '</h3><div class="desc">' + esc(rec.mod) + ' · ' + Math.round((rec.size || 0) / 1024) + 'KB</div>' +
+      '<div class="explain" style="max-height:50vh;overflow:auto;white-space:pre-wrap;line-height:1.9">' + esc(heads.join('\n') || '（没有小标题）') + '</div>' +
+      '<div class="modal-actions"><button class="btn primary" data-act="teacher-ask" data-id="' + esc(id) + '">🤖 问这位老师</button>' +
+      '<button class="btn ghost" data-act="modal-close">关闭</button></div>');
+  });
+}
+
 function renderSkills(){
   var done = state.skillsDone || {};
-  var html = pageHead('🎓', '老师技能卡', '');
+  var html = pageHead('🎓', '老师技能库', '');
+  html += skillsLibraryHTML();
+  html += '<div class="card-head" style="margin:18px 0 10px"><h2>🧭 通用方法卡（内置 8 张）</h2><span class="tag mint">不依赖导入</span></div>';
   var cats = [], seen = {};
   SKILLS.forEach(function(s){ if(!seen[s.cat]){ seen[s.cat] = 1; cats.push(s.cat); } });
   var total = SKILLS.length, ok = SKILLS.filter(function(s){ return done[s.id]; }).length;
@@ -1342,7 +1474,9 @@ function aiCfg(){
   if(!state.settings.ai) state.settings.ai = { base:'https://api.deepseek.com/v1', model:'deepseek-chat', key:'' };
   return state.settings.ai;
 }
-function openTeacher(prefill, context){
+var aiSysExtra = '';
+function openTeacher(prefill, context, sysExtra){
+  aiSysExtra = sysExtra || '';
   aiHistory = [];
   openModal(
     '<h3>🤖 问老师</h3>' +
@@ -1408,7 +1542,7 @@ function aiSend(){
       model: cfg.model,
       temperature: 0.3,
       max_tokens: 900,
-      messages: [{ role:'system', content: AI_SYS + ctx }].concat(aiHistory.slice(-10))
+      messages: [{ role:'system', content: AI_SYS + (aiSysExtra ? '\n\n' + aiSysExtra : '') + ctx }].concat(aiHistory.slice(-10))
     })
   })
   .then(function(r){
@@ -1870,7 +2004,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 00:20';
+var APP_BUILD = '2026-11-08 · 00:40';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -2559,6 +2693,21 @@ document.addEventListener('click', function(e){
     }).catch(function(){ toast('恢复失败'); });
     return;
   }
+  if(act === 'skill-import'){
+    var fi = $('#skillFile'); if(fi) fi.click();
+    return;
+  }
+  if(act === 'teacher-ask'){ openTeacherSkill(t.getAttribute('data-id')); return; }
+  if(act === 'teacher-preview'){ previewTeacherSkill(t.getAttribute('data-id')); return; }
+  if(act === 'teacher-del'){
+    var tid = t.getAttribute('data-id');
+    idbGet('skillindex').then(function(list){
+      return idbPut('skillindex', (list || []).filter(function(x){ return x.id !== tid; }));
+    }).then(function(){ return idbDel('skill:' + tid); }).then(function(){
+      teacherCache = null; renderTeacherList(); toast('已移除');
+    }).catch(function(){ toast('移除失败'); });
+    return;
+  }
   if(act === 'skill-toggle'){
     var sid = t.getAttribute('data-id');
     state.skillsDone = state.skillsDone || {};
@@ -3009,6 +3158,18 @@ function loadSnapList(){
   });
 }
 
+document.addEventListener('change', function(e){
+  if(e.target && e.target.id === 'skillFile'){ importSkillFiles(e.target.files); }
+});
+document.addEventListener('dragover', function(e){
+  if(e.target && e.target.closest && e.target.closest('#impZone')){ e.preventDefault(); }
+});
+document.addEventListener('drop', function(e){
+  var z = e.target && e.target.closest && e.target.closest('#impZone');
+  if(!z) return;
+  e.preventDefault();
+  if(e.dataTransfer && e.dataTransfer.files) importSkillFiles(e.dataTransfer.files);
+});
 $('#aiFab').addEventListener('click', function(){ openTeacher(); });
 document.addEventListener('keydown', function(e){
   if(e.key === 'Enter' && !e.shiftKey && e.target && e.target.id === 'aiInput'){ e.preventDefault(); aiSend(); }
@@ -3061,6 +3222,7 @@ function route(){
       '<button class="btn primary" style="margin-top:12px" data-act="reload">重新加载</button></div>';
   }
   setActiveNav(key);
+  if(key === 'skills') setTimeout(renderTeacherList, 30);
   var scrim = $('#scrim');
   if(scrim) scrim.remove();
   window.scrollTo(0, 0);
