@@ -3186,7 +3186,10 @@ function loadSnapList(){
 
 document.addEventListener('change', function(e){
   if(e.target && e.target.id === 'skillFile'){ importSkillFiles(e.target.files, false); }
-  if(e.target && e.target.id === 'skillDir'){ importSkillFiles(e.target.files, true); }
+  if(e.target && e.target.id === 'skillDir'){
+    if(e.target.files && e.target.files.length) importSkillFiles(e.target.files, true);
+    else toast('没读到文件夹内容，请改点「📄 选文件」多选一次');
+  }
 });
 document.addEventListener('dragover', function(e){
   if(e.target && e.target.closest && e.target.closest('#impZone')){ e.preventDefault(); }
