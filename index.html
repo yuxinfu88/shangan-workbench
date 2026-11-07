@@ -368,14 +368,29 @@ textarea.inp{min-height:72px;resize:vertical;line-height:1.6}
 @media(max-width:1024px){:root{--nav-w:170px}}
 @media(max-width:640px){
   :root{--nav-w:140px}
-  #main{padding:14px 12px 70px}
-  .card{padding:16px 14px;border-radius:22px}
-  .cd-card{padding:20px 18px 18px;border-radius:24px}
-  .nav-scroll{padding-left:8px;padding-right:6px}
-  .nav-item{padding:7px 6px;gap:5px;border-radius:13px}
-  .avatar-wrap{width:46px;height:46px;font-size:22px}
+  #main{padding:14px 10px 70px}
+  .card{padding:16px 13px;border-radius:22px}
+  .cd-card{padding:20px 16px 18px;border-radius:24px}
+  .nav-head{padding:14px 8px 8px 12px}
+  .avatar-wrap{width:40px;height:40px;font-size:19px;border-width:2px}
+  .pin-btn{width:26px;height:26px;font-size:12px;right:6px;top:9px}
+  .nav-nick{margin-top:6px;gap:3px}
+  .nav-nick .pencil{opacity:.55}
+  .nav-motto{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:calc(var(--fs-sm) - 1px)}
+  .nav-scroll{padding-left:7px;padding-right:5px}
+  .nav-group-t{padding-left:6px;font-size:calc(var(--fs-sm) - 2px)}
+  .sync-pill{font-size:calc(var(--fs-sm) - 3px);padding:5px 6px;gap:4px}
+  .set-btn{padding:7px 7px;font-size:calc(var(--fs-body) - 1px);gap:5px}
+  .page-head h1{font-size:calc(var(--fs-h1) - 2px)}
+  .page-head .sub{margin-left:0;width:100%}
+  .card-head h2{font-size:calc(var(--fs-card) - 1px)}
   .bars{height:92px;gap:5px}
   .wrong-imgs img{width:64px;height:64px}
+  .item{padding:11px 12px}
+  .row{padding:9px 9px;gap:7px}
+  #navFab{width:44px;height:44px;font-size:18px;left:10px;bottom:16px}
+  .modal-box{padding:18px;border-radius:24px}
+  .stat{padding:10px 11px}
 }
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
 
@@ -1133,8 +1148,9 @@ function renderCountdown(){
       html += '<div class="row' + (color === 'warn' ? ' overdue' : '') + '">' +
         '<div class="txt"><b>' + esc(e.name) + '</b>' +
         '<div class="m">📆 ' + fmtCN(e.date) + '　·　' + (dd >= 0 ? '还有 ' + dd + ' 天' : '已过 ' + (-dd) + ' 天') + (e.note ? '　·　' + esc(e.note) : '') + '</div></div>' +
+        '<div style="display:flex;gap:2px;flex:0 0 auto">' +
         '<button class="del" data-act="edit-exam" data-id="' + e.id + '">✏️</button>' +
-        '<button class="del" data-act="del-exam" data-id="' + e.id + '">✕</button></div>';
+        '<button class="del" data-act="del-exam" data-id="' + e.id + '">✕</button></div></div>';
     });
   }
   html += '</div>';
