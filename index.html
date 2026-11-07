@@ -1794,6 +1794,19 @@ function buildWrongDoc(){
     (body || '<p>暂无错题。</p>') + sum +
     '</body></html>';
 }
+function exportPayload(includeSecrets){
+  var copy = clone(state);
+  if(!includeSecrets){
+    copy.settings.sync = { url:'', user:'', pass:'', lastSync:'', connected:false };
+    copy.settings.report = { webhook:'', email:'', auto:(copy.settings.report || {}).auto !== false, lastPush:'' };
+  }
+  return copy;
+}
+function maskSecret(s){
+  if(!s) return '';
+  var t = String(s).replace(/\s/g, '');
+  return t.length <= 10 ? '•'.repeat(t.length) : (t.slice(0, 8) + '…' + t.slice(-4));
+}
 function downloadBlob(content, filename, mime){
   try{
     var blob = new Blob(['\ufeff' + content], { type:mime });
@@ -1835,10 +1848,14 @@ function openSettings(){
     '<button class="btn sm" data-act="sync-test">🔌 测试连接</button>' +
     '<button class="btn sm" data-act="sync-up">⬆️ 上传备份</button>' +
     '<button class="btn sm" data-act="sync-down">⬇️ 下载备份</button></div>' +
-    '<div class="tiny muted" style="margin-top:6px">不填也能正常用：默认纯本地保存，侧边栏会显示「💾 本地保存 · 未连接」。同步需要你的服务端允许跨域。</div></div>' +
+    '<div class="tiny" style="margin-top:8px;background:#fff3ef;border:1px solid #fbd6ce;border-radius:12px;padding:8px 10px;color:#a9604f;line-height:1.65">⚠️ 云同步会把<b>整份数据</b>（含错题、备注、图片）上传到你填的这个服务器。只填你自己控制的地址；公共网盘、别人给的空间一律别填。留空 = 全程只在本机。</div></div>' +
     '<div class="field"><label>📨 周报推送（飞书 / 邮件）</label>' +
-    '<input class="inp" id="rpWebhook" data-report-field="webhook" placeholder="飞书群机器人 webhook：https://open.feishu.cn/open-apis/bot/v2/hook/..." value="' + esc((state.settings.report || {}).webhook || '') + '">' +
-    '<div class="tiny muted" style="margin-top:5px">飞书群 → 右上「设置」→ 群机器人 → 添加机器人 → 自定义机器人 → 复制 webhook 地址</div>' +
+    '<div style="display:flex;gap:8px">' +
+    '<input class="inp" id="rpWebhook" type="password" autocomplete="off" data-report-field="webhook" placeholder="飞书群机器人 webhook：https://open.feishu.cn/open-apis/bot/v2/hook/..." value="' + esc((state.settings.report || {}).webhook || '') + '">' +
+    '<button class="btn sm" data-act="hook-eye" style="flex:0 0 auto">👁</button>' +
+    '<button class="btn sm coral" data-act="hook-clear" style="flex:0 0 auto">清除</button></div>' +
+    ((state.settings.report || {}).webhook ? '<div class="tiny muted" style="margin-top:5px">已配置：' + esc(maskSecret(state.settings.report.webhook)) + '（默认打码显示，点 👁 可看全文）</div>' : '') +
+    '<div class="tiny muted" style="margin-top:5px">飞书群 → 右上「设置」→ 群机器人 → 添加机器人 → 自定义机器人 → 复制 webhook 地址。<b>别把它贴到任何公开的地方</b>：谁拿到它就能往你群里发消息。</div>' +
     '<input class="inp" id="rpEmail" data-report-field="email" style="margin-top:8px" inputmode="email" placeholder="接收邮箱（可选，点「邮件」时用）" value="' + esc((state.settings.report || {}).email || '') + '">' +
     '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">' +
     '<button class="btn sm" data-act="report-test">🚀 发一条测试消息</button>' +
@@ -1846,6 +1863,13 @@ function openSettings(){
     '<div class="field"><label style="color:#c9604f">危险操作</label>' +
     '<button class="btn sm coral" data-act="data-clear">🗑️ 清空全部数据</button></div>' +
     '<div class="modal-actions"><button class="btn primary" data-act="modal-close">完成</button></div>' +
+    '<div class="field" style="margin-top:6px"><label>🔐 数据与隐私</label>' +
+    '<div class="tiny" style="line-height:1.85;background:#f7faf7;border:1px solid #dcecdf;border-radius:14px;padding:9px 11px">' +
+    '· 你的记录只在这些浏览器的 localStorage 里，代码从不把它们写回文件、也不上传；<br>' +
+    '· GitHub 仓库是公开的，但里面只有程序本身，没有你的任何记录；<br>' +
+    '· 唯一会上传数据的出口是「云同步」和「推送到飞书」，两者都由你手动填地址；<br>' +
+    '· 导出的备份默认不含密码和 webhook；<br>' +
+    '· 手机/电脑各自独立，换设备用「导出/导入」搬。</div></div>' +
     '<div class="tiny muted" style="margin-top:10px;line-height:1.7">上岸工作台 · 单文件离线版<br>时政数据包更新于 ' + NEWS_PACK_DATE + '，其余题目为每日轮换的本地题库。</div>'
   );
 }
@@ -2054,8 +2078,19 @@ document.addEventListener('click', function(e){
     return;
   }
   if(act === 'data-export'){
-    downloadBlob(JSON.stringify(state, null, 2), '上岸工作台备份_' + todayStr() + '.json', 'application/json');
-    toast('备份已下载');
+    openModal('<h3>⬇️ 导出数据包</h3><div class="desc">用于换手机/换浏览器时恢复数据。文件里有你的打卡、错题、头像。</div>' +
+      '<div class="field"><label><input type="checkbox" id="expSecrets"> 同时导出同步密码与飞书 webhook</label>' +
+      '<div class="tiny muted" style="margin-top:6px">默认<b>不导出</b>密钥：万一这个 json 被传到网盘或提交进仓库，密钥也不会跟着泄露。换设备后重新填一次即可。</div></div>' +
+      '<div class="modal-actions"><button class="btn ghost" data-act="modal-close">取消</button>' +
+      '<button class="btn primary" data-act="data-export-go">导出</button></div>');
+    return;
+  }
+  if(act === 'data-export-go'){
+    var withSecrets = ($('#expSecrets') || {}).checked;
+    var payload = exportPayload(withSecrets);
+    var ok2 = downloadBlob(JSON.stringify(payload, null, 2), '上岸工作台备份_' + todayStr() + '.json', 'application/json');
+    closeModal();
+    toast(ok2 ? (withSecrets ? '已导出（含密钥，请妥善保管）' : '已导出（不含密钥）') : '导出失败，请重试');
     return;
   }
   if(act === 'data-import'){
@@ -2081,6 +2116,17 @@ document.addEventListener('click', function(e){
     try{ localStorage.removeItem(LS_KEY); }catch(e){}
     state = clone(DEF_STATE);
     saveNow(); renderProfile(); applySettings(); route(); closeModal(); toast('已清空');
+    return;
+  }
+  if(act === 'hook-eye'){
+    var hi = $('#rpWebhook');
+    if(hi) hi.type = (hi.type === 'password' ? 'text' : 'password');
+    return;
+  }
+  if(act === 'hook-clear'){
+    state.settings.report.webhook = '';
+    save(); closeModal(); openSettings();
+    toast('已清除 webhook');
     return;
   }
   if(act === 'report-copy'){ copyText(buildWeekReport().text); return; }

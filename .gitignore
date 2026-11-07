@@ -1,0 +1,16 @@
+# 这个仓库是公开的（GitHub Pages 免费版要求）
+# 下面这些文件属于「本机数据/密钥」，永远不要提交
+*.json
+*备份*
+*.bak
+*.local
+*.env
+.env*
+.DS_Store
+
+# 导出物（错题本 Word/PDF、周报）
+*.pdf
+*.doc
+*.docx
+错题本_*
+上岸工作台备份_*
