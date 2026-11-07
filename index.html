@@ -401,6 +401,30 @@ textarea.inp{min-height:72px;resize:vertical;line-height:1.6}
 }
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
 
+/* 技能卡 */
+.skill{background:var(--card2);border:1px solid #f6ecdd;border-radius:var(--r-md);padding:13px 15px;margin-bottom:10px}
+.skill.done{opacity:.62}
+.skill h3{margin:0 0 6px;font-size:calc(var(--fs-body) + .5px);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.skill .when{font-size:calc(var(--fs-sm) - .5px);color:#4a8dba;background:#eef6fc;border-radius:10px;padding:5px 9px;margin:4px 0;line-height:1.6}
+.skill ol{margin:6px 0 6px;padding-left:20px;font-size:calc(var(--fs-sm) + .5px);line-height:1.8}
+.skill .trap{font-size:calc(var(--fs-sm) - .5px);color:#a9604f;background:#fff3ef;border-radius:10px;padding:6px 9px;line-height:1.65;margin-top:6px}
+.skill .mantra{font-size:calc(var(--fs-sm) + 1px);color:#3f7a5c;background:#f2f9f4;border-radius:10px;padding:6px 9px;margin-top:6px;font-weight:700}
+.skill .foot{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.skill .time{font-size:calc(var(--fs-sm) - 2px);color:var(--ink3)}
+
+/* AI 助教 */
+#aiFab{position:fixed;right:22px;bottom:26px;width:56px;height:56px;border-radius:50%;
+  background:linear-gradient(135deg,#8ec9ef,#67c39c);color:#fff;font-size:24px;display:grid;place-items:center;
+  box-shadow:0 10px 24px rgba(110,180,190,.45);z-index:70}
+#aiFab:active{transform:scale(.96)}
+.ai-log{max-height:46vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:4px 2px;margin-bottom:10px}
+.ai-msg{max-width:88%;padding:9px 12px;border-radius:16px;font-size:calc(var(--fs-sm) + .5px);line-height:1.75;white-space:pre-wrap;word-break:break-word}
+.ai-msg.me{align-self:flex-end;background:linear-gradient(135deg,#8ec9ef,#a8e6cf);color:#fff}
+.ai-msg.bot{align-self:flex-start;background:#f7f4ee;color:var(--ink);border:1px solid #ece2d4}
+.ai-msg.sys{align-self:center;background:#fff8e6;color:#a8811f;font-size:calc(var(--fs-sm) - 1px)}
+.ai-row{display:flex;gap:8px;align-items:flex-end}
+.ai-row textarea{flex:1;min-height:52px;max-height:120px}
+
 /* 打印（导出PDF用，页面本身不打印侧栏） */
 @media print{
   #sidebar,#navFab,#navTab,#toast,#modal{display:none !important}
@@ -436,6 +460,7 @@ textarea.inp{min-height:72px;resize:vertical;line-height:1.6}
 <!-- ===== 主内容 ===== -->
 <main id="main"><div class="wrap" id="view"></div></main>
 
+<button id="aiFab" title="问老师">🤖</button>
 <div id="modal"><div class="modal-box" id="modalBox"></div></div>
 <div id="toast"></div>
 
@@ -706,6 +731,9 @@ const NAV_GROUPS = [
     {key:'data', icon:'📊', label:'资料分析'},
     {key:'stats', icon:'📈', label:'每日统计'}
   ]},
+  {name:'老师心法', items:[
+    {key:'skills', icon:'🎓', label:'技能卡'}
+  ]},
   {name:'申论学习', items:[
     {key:'sl-small', icon:'✍️', label:'申论小题'},
     {key:'sl-big', icon:'🖋️', label:'申论大作文'}
@@ -759,9 +787,11 @@ const DEF_STATE = {
   stats:{},
   wrong:[],
   quizLog:{},
+  skillsDone:{},
   archiveOffset:0,
   settings:{ font:'m', pinned:true, sync:{ url:'', user:'', pass:'', lastSync:'', connected:false },
             gh:{ token:'', gistId:'', auto:false, lastSync:'' },
+            ai:{ base:'https://api.deepseek.com/v1', model:'deepseek-chat', key:'' },
             report:{ webhook:'', email:'', auto:true, lastPush:'' } }
 };
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
@@ -1220,6 +1250,184 @@ function quizHTML(modKey, catName, q, qid){
 var QUIZ_INDEX = {};
 function regQuiz(id, q, catName, modKey){ QUIZ_INDEX[id] = { q:q, cat:catName, mod:modKey }; }
 
+/* ================= 老师技能卡 ================= */
+const SKILLS = [
+  {id:'s1', cat:'行测总策略', icon:'⏱️', title:'120 分钟的时间账',
+   when:'拿到卷子、动笔之前，先把时间分好',
+   steps:['常识 8 分钟（会就是会，不纠结）','言语 30 分钟（40 题，35 秒/题）','判断 35 分钟（40 题）','资料 25 分钟（20 题，一篇 5 题控制在 6 分钟内）','数量 10 分钟（先扫一遍，只挑 3–4 道）','涂卡 7 分钟，留 5 分钟机动'],
+   time:'120 分钟',
+   trap:'一道题耗超过 90 秒＝用后面 3 道题换这 1 道；资料分析别抄原数字，直接截位算。',
+   mantra:'先易后难，卡住就跳，跳了不回头。'},
+  {id:'s2', cat:'资料分析', icon:'📊', title:'截位直除 + 百化分',
+   when:'给你一张表/图 + 5 道计算题',
+   steps:['先读题干问什么：增长率？比重？平均数？','再回材料只找对应那两三个数','选项差距大 → 截前两位直除；差距小 → 截三位','见到 1/6、1/7、1/8、1/9 用百化分：16.7%、14.3%、12.5%、11.1%','判断类题（比重升降、平均数升降）只看增长率大小，不算'],
+   time:'每篇 6 分钟',
+   trap:'增长率 ≠ 增长量；"是几倍"与"多几倍"差 1；基期用除法不是"现期减个百分比"。',
+   mantra:'先问题后材料，能判断就不算数。'},
+  {id:'s3', cat:'言语理解', icon:'🗣️', title:'结构阅读 + 关键词定位',
+   when:'片段阅读、语句排序、逻辑填空',
+   steps:['先看问法：主旨 / 意图 / 细节 / 衔接','找结构词：转折（但是、然而、其实）之后是重点；因果（因此、可见）之后是结论；并列找共性','主旨题排除三类：片面对策、无中生有、过度引申','逻辑填空先看语境提示（解释、反义、并列），再看搭配与感情色彩'],
+   time:'40 秒/题，片段阅读 60 秒',
+   trap:'"因此"后面才是观点，前面都是铺垫；别用常识替代原文。',
+   mantra:'转折之后是重点，并列之中找共性。'},
+  {id:'s4', cat:'逻辑判断', icon:'🧩', title:'翻译 + 矛盾 + 力度',
+   when:'必然性推理 / 可能性推理',
+   steps:['把条件翻译成箭头：如果A那么B → A⇒B；只有A才B → B⇒A；除非A否则B → ¬A⇒B','逆否等价能用，否前、肯后都不成立','真假话题：先找矛盾关系（A 与 ¬A 必一真一假），再按真假条数推','加强削弱看力度：因果倒置/另有他因 > 举反例 > 样本问题；加强：补机制 > 排除他因 > 举例'],
+   time:'50 秒/题',
+   trap:'"只有…才…"方向最容易翻；削弱题问的是"最能削弱结论"，不是"反驳某句话"。',
+   mantra:'先翻译，再逆否，最后比力度。'},
+  {id:'s5', cat:'数量关系', icon:'➗', title:'挑着做 + 代入排除',
+   when:'数量 10 题',
+   steps:['第一遍只挑熟的 3 类：工程 / 行程 / 经济利润 / 几何','看选项：能整除、能代入的直接代，别推导','见"至少/最多"用最不利原则','剩下 5–6 题统一蒙一个字母，别乱蒙'],
+   time:'10 分钟，单题超 90 秒立刻放弃',
+   trap:'别从头做；别在排列组合、概率上纠缠。',
+   mantra:'数量的分不在难，在取舍。'},
+  {id:'s6', cat:'常识', icon:'📚', title:'三秒决策',
+   when:'20 道常识',
+   steps:['读完 3 秒没思路，凭第一印象选','排除绝对化表述："一定""唯一""完全""根本"','政策类选最符合国家导向的选项','不会的一律不空，全部同一个字母'],
+   time:'8 分钟',
+   trap:'纠结＝白丢后面题的时间。',
+   mantra:'常识不是知识竞赛，是速度竞赛。'},
+  {id:'s7', cat:'申论小题', icon:'✍️', title:'采分点思维',
+   when:'归纳概括 / 综合分析 / 提出对策 / 贯彻执行',
+   steps:['先看题干动词（概括、分析、提出、起草），决定写法','回材料划关键词：主体—做法—效果','一条要点一个核心词前置，分条书写','字数按格子算，宁少勿超','贯彻执行题必须有格式：标题、称谓、正文、落款、日期'],
+   time:'每小题 15–20 分钟',
+   trap:'要点不全比文笔差更致命；抄材料关键句比自我发挥安全。',
+   mantra:'材料里有的才写，写了就要能对上原文。'},
+  {id:'s8', cat:'申论大作文', icon:'🖋️', title:'五段式 + 材料立意',
+   when:'最后一题，40 分',
+   steps:['立意从材料来：找反复出现的关键词 + 题干指向','标题：动词 + 宾语（如"以实干托举乡村振兴"）','开头三句：背景 — 问题 — 观点','三个分论点并列或递进，每段"论点 + 阐释 + 案例 + 回扣"','结尾升华但别喊口号'],
+   time:'50–60 分钟（先花 8 分钟列提纲）',
+   trap:'分论点与材料脱节、通篇对策没有分析，是三类文的典型。',
+   mantra:'分论点站得住，文章就站得住。'}
+];
+
+function renderSkills(){
+  var done = state.skillsDone || {};
+  var html = pageHead('🎓', '老师技能卡', '');
+  var cats = [], seen = {};
+  SKILLS.forEach(function(s){ if(!seen[s.cat]){ seen[s.cat] = 1; cats.push(s.cat); } });
+  var total = SKILLS.length, ok = SKILLS.filter(function(s){ return done[s.id]; }).length;
+  html += '<div class="card"><div class="card-head"><h2>🎯 掌握进度</h2><span class="tag">' + ok + ' / ' + total + '</span>' +
+    '<span class="right"><span class="pct">' + Math.round(ok / total * 100) + '%</span></span></div>' +
+    '<div class="bar lg"><i style="width:' + Math.round(ok / total * 100) + '%"></i></div>' +
+    '<div class="tiny muted" style="margin-top:8px">这些是"方法"不是"知识"：能不看卡片复述出来，再勾已掌握。卡住了点右下角 🤖 问老师。</div></div>';
+
+  cats.forEach(function(cat){
+    html += '<div class="card"><div class="card-head"><h2>' + (SKILLS.filter(function(s){return s.cat===cat;})[0] || {}).icon + ' ' + esc(cat) + '</h2>' +
+            '<span class="tag mint">' + SKILLS.filter(function(s){return s.cat===cat;}).length + ' 张</span></div>';
+    SKILLS.filter(function(s){ return s.cat === cat; }).forEach(function(s){
+      var d = !!done[s.id];
+      html += '<div class="skill' + (d ? ' done' : '') + '">' +
+        '<h3>' + s.icon + ' ' + esc(s.title) + '<span class="time">⏱ ' + esc(s.time) + '</span></h3>' +
+        '<div class="when">🎯 什么时候用：' + esc(s.when) + '</div>' +
+        '<ol>' + s.steps.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>' +
+        '<div class="trap">⚠️ 常见坑：' + esc(s.trap) + '</div>' +
+        '<div class="mantra">口诀：' + esc(s.mantra) + '</div>' +
+        '<div class="foot"><button class="btn sm' + (d ? '' : ' primary') + '" data-act="skill-toggle" data-id="' + s.id + '">' +
+          (d ? '↩️ 取消已掌握' : '✅ 我已掌握') + '</button>' +
+        '<button class="btn sm ghost" data-act="ai-ask-skill" data-id="' + s.id + '">🤖 问问老师</button></div>' +
+      '</div>';
+    });
+    html += '</div>';
+  });
+  return html;
+}
+
+/* ================= AI 助教 ================= */
+var AI_SYS = '你是一位带过十届国省考的公考老师，讲题风格固定：先一句话判断"这题考什么"，再给 2-4 步可执行步骤，最后给一句口诀或易错提醒。中文回答，简洁，控制在 300 字内。不编造真题出处和年份；不确定就直说不确定。不写与备考无关的内容。';
+var aiHistory = [], aiBusy = false;
+
+function aiCfg(){
+  if(!state.settings.ai) state.settings.ai = { base:'https://api.deepseek.com/v1', model:'deepseek-chat', key:'' };
+  return state.settings.ai;
+}
+function openTeacher(prefill, context){
+  aiHistory = [];
+  openModal(
+    '<h3>🤖 问老师</h3>' +
+    '<div class="desc">用你填的模型接口回答（默认 DeepSeek）。' +
+    (aiCfg().key ? '' : '<b style="color:#c9604f">还没配 API Key：⚙️ 设置 → AI 助教</b>') + '</div>' +
+    '<div class="ai-log" id="aiLog"></div>' +
+    '<label class="tiny" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">' +
+    '<input type="checkbox" id="aiCtx" checked> 带上当前页面内容当背景</label>' +
+    '<div class="ai-row"><textarea class="inp" id="aiInput" placeholder="例如：这道资料分析题为什么比重上升？"></textarea>' +
+    '<button class="btn primary" data-act="ai-send" style="flex:0 0 auto">发送</button></div>' +
+    '<div class="modal-actions"><button class="btn ghost sm" data-act="ai-clear">清空对话</button>' +
+    '<button class="btn ghost" data-act="modal-close">关闭</button></div>',
+    function(box){
+      aiLogSys('老师已就位。可以直接问题目、问方法，或让我点评你的答案。');
+      if(prefill){ $('#aiInput', box).value = prefill; }
+      if(context) aiLogSys('已载入当前页面内容作为背景');
+      $('#aiInput', box).focus();
+    }
+  );
+}
+function aiLogSys(t){
+  var log = $('#aiLog'); if(!log) return;
+  var d = document.createElement('div');
+  d.className = 'ai-msg sys'; d.textContent = t;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+}
+function aiBubble(role, text){
+  var log = $('#aiLog'); if(!log) return null;
+  var d = document.createElement('div');
+  d.className = 'ai-msg ' + (role === 'user' ? 'me' : 'bot');
+  d.textContent = text;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+  return d;
+}
+function aiError(msg){
+  var log = $('#aiLog'); if(!log) return;
+  var d = document.createElement('div');
+  d.className = 'ai-msg sys'; d.textContent = '⚠️ ' + msg;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+}
+function aiSend(){
+  var box = $('#modalBox');
+  var inp = $('#aiInput', box);
+  var q = (inp.value || '').trim();
+  if(!q || aiBusy) return;
+  var cfg = aiCfg();
+  if(!cfg.key){ aiError('还没填 API Key：⚙️ 设置 → AI 助教'); return; }
+  inp.value = '';
+  aiBubble('user', q);
+  aiHistory.push({ role:'user', content:q });
+
+  var ctx = '';
+  if($('#aiCtx', box) && $('#aiCtx', box).checked){
+    var v = $('#view');
+    ctx = '\n\n【当前页面】' + currentPage + '\n' + (v ? v.innerText.slice(0, 900) : '');
+  }
+  aiBusy = true;
+  var wait = aiBubble('bot', '老师正在想…');
+  fetch(String(cfg.base).replace(/\/+$/, '') + '/chat/completions', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + cfg.key },
+    body: JSON.stringify({
+      model: cfg.model,
+      temperature: 0.3,
+      max_tokens: 900,
+      messages: [{ role:'system', content: AI_SYS + ctx }].concat(aiHistory.slice(-10))
+    })
+  })
+  .then(function(r){
+    if(!r.ok) return r.text().then(function(t){ throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 120)); });
+    return r.json();
+  })
+  .then(function(j){
+    var c = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '（没有拿到回复）';
+    aiHistory.push({ role:'assistant', content:c });
+    if(wait) wait.textContent = c;
+    var log = $('#aiLog'); if(log) log.scrollTop = log.scrollHeight;
+  })
+  .catch(function(e){
+    if(wait && wait.parentNode) wait.parentNode.removeChild(wait);
+    aiError(String(e.message || e).slice(0, 160) + '（若是跨域/网络问题，换 DeepSeek 或硅基流动接口）');
+  })
+  .finally(function(){ aiBusy = false; });
+}
+
 /* ================= 页面：倒计时 ================= */
 function maoOfDay(){
   var n = dayNum() % MAO_QUOTES.length;
@@ -1326,7 +1534,7 @@ function renderPlans(){
     html += '</div>';
   }
 
-  html += '<button class="btn primary" data-act="add-plan" style="position:fixed;right:22px;bottom:26px;width:56px;height:56px;border-radius:50%;font-size:24px;padding:0;box-shadow:0 10px 24px rgba(110,180,190,.45);z-index:50">＋</button>';
+  html += '<button class="btn primary" data-act="add-plan" style="position:fixed;right:22px;bottom:96px;width:52px;height:52px;border-radius:50%;font-size:23px;padding:0;box-shadow:0 10px 24px rgba(110,180,190,.45);z-index:50">＋</button>';
   return html;
 }
 function planRow(it){
@@ -1662,7 +1870,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-07 · 23:45';
+var APP_BUILD = '2026-11-08 · 00:20';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -1914,6 +2122,7 @@ function exportPayload(includeSecrets){
     copy.settings.sync = { url:'', user:'', pass:'', lastSync:'', connected:false };
     copy.settings.report = { webhook:'', email:'', auto:(copy.settings.report || {}).auto !== false, lastPush:'' };
     if(copy.settings.gh){ copy.settings.gh = { token:'', gistId:copy.settings.gh.gistId || '', auto:!!copy.settings.gh.auto, lastSync:copy.settings.gh.lastSync || '' }; }
+    if(copy.settings.ai) copy.settings.ai = { base:copy.settings.ai.base || '', model:copy.settings.ai.model || '', key:'' };
   }
   return copy;
 }
@@ -1982,6 +2191,20 @@ function openSettings(){
     '<button class="btn sm" data-act="sync-down">⬇️ 下载备份</button></div>' +
     '<div class="tiny" style="margin-top:8px;background:#fff3ef;border:1px solid #fbd6ce;border-radius:12px;padding:8px 10px;color:#a9604f;line-height:1.65">⚠️ 坚果云等商业网盘<b>不允许浏览器跨域</b>，这里连会一直失败（不是配置错）；只有自己搭建、并已开启 CORS 的 WebDAV（群晖/Nextcloud）才能用。日常请用上面的 GitHub Gist。上传的文件<b>不含</b>你的密码和 webhook。</div></div>' +
     '</details>' +
+    '<div class="field"><label>🤖 AI 助教（问老师）</label>' +
+    '<div class="tiny" style="background:#f6f9fd;border:1px solid #dbe8f5;border-radius:12px;padding:8px 10px;margin-bottom:8px;line-height:1.7">' +
+    '已实测允许浏览器直连的接口：<b>DeepSeek</b>、<b>阿里百炼</b>、<b>硅基流动</b>；Moonshot、智谱不支持跨域，填了会失败。Key 只存本机。</div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+    '<button class="btn sm" data-act="ai-preset" data-base="https://api.deepseek.com/v1" data-model="deepseek-chat">DeepSeek</button>' +
+    '<button class="btn sm" data-act="ai-preset" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-plus">阿里百炼</button>' +
+    '<button class="btn sm" data-act="ai-preset" data-base="https://api.siliconflow.cn/v1" data-model="Qwen/Qwen2.5-7B-Instruct">硅基流动</button></div>' +
+    '<input class="inp" id="aiBase" data-ai-field="base" placeholder="接口地址" value="' + esc((state.settings.ai || {}).base || '') + '">' +
+    '<input class="inp" id="aiModel" data-ai-field="model" style="margin-top:6px" placeholder="模型名，如 deepseek-chat" value="' + esc((state.settings.ai || {}).model || '') + '">' +
+    '<div style="display:flex;gap:8px;margin-top:6px">' +
+    '<input class="inp" id="aiKey" type="password" autocomplete="off" data-ai-field="key" placeholder="API Key（sk-...）" value="' + esc((state.settings.ai || {}).key || '') + '">' +
+    '<button class="btn sm" data-act="ai-key-eye" style="flex:0 0 auto">👁</button>' +
+    '<button class="btn sm coral" data-act="ai-key-clear" style="flex:0 0 auto">清除</button></div>' +
+    '<div class="tiny muted" style="margin-top:6px">Key 存在这台设备的 localStorage，不会进仓库、不会进备份（导出与云备份都会剥掉）。用完想更保险就去平台把 Key 删掉重建。</div></div>' +
     '<div class="field"><label>📨 周报推送（飞书 / 邮件）</label>' +
     '<div style="display:flex;gap:8px">' +
     '<input class="inp" id="rpWebhook" type="password" autocomplete="off" data-report-field="webhook" placeholder="飞书群机器人 webhook：https://open.feishu.cn/open-apis/bot/v2/hook/..." value="' + esc((state.settings.report || {}).webhook || '') + '">' +
@@ -2039,6 +2262,13 @@ document.addEventListener('change', function(e){
 });
 document.addEventListener('change', function(e){
   var t = e.target;
+  if(t && t.getAttribute && t.getAttribute('data-ai-field')){
+    var af = t.getAttribute('data-ai-field');
+    aiCfg()[af] = (t.value || '').trim();
+    save();
+    toast(af === 'key' ? (aiCfg().key ? 'API Key 已保存' : 'API Key 已清空') : '已保存');
+    return;
+  }
   if(t && t.getAttribute && t.getAttribute('data-gh-field')){
     var gf = t.getAttribute('data-gh-field');
     ghCfg()[gf] = (t.value || '').trim();
@@ -2329,6 +2559,36 @@ document.addEventListener('click', function(e){
     }).catch(function(){ toast('恢复失败'); });
     return;
   }
+  if(act === 'skill-toggle'){
+    var sid = t.getAttribute('data-id');
+    state.skillsDone = state.skillsDone || {};
+    if(state.skillsDone[sid]) delete state.skillsDone[sid]; else state.skillsDone[sid] = Date.now();
+    save(); rerender();
+    return;
+  }
+  if(act === 'ai-ask-skill'){
+    var sk = SKILLS.filter(function(x){ return x.id === t.getAttribute('data-id'); })[0];
+    if(!sk) return;
+    openTeacher('请按你的讲法，把「' + sk.title + '」这套方法再讲一遍，并给一个反例说明它什么时候不适用。');
+    return;
+  }
+  if(act === 'ai-send'){ aiSend(); return; }
+  if(act === 'ai-clear'){ aiHistory = []; var lg = $('#aiLog'); if(lg) lg.innerHTML = ''; aiLogSys('已清空，重新开始'); return; }
+  if(act === 'ai-preset'){
+    var ac = aiCfg();
+    ac.base = t.getAttribute('data-base'); ac.model = t.getAttribute('data-model');
+    save(); closeModal(); openSettings();
+    toast('已填入 ' + ac.model);
+    return;
+  }
+  if(act === 'ai-key-eye'){
+    var ki = $('#aiKey'); if(ki) ki.type = (ki.type === 'password' ? 'text' : 'password');
+    return;
+  }
+  if(act === 'ai-key-clear'){
+    aiCfg().key = ''; save(); closeModal(); openSettings(); toast('已清除 API Key');
+    return;
+  }
   if(act === 'gh-eye'){
     var gi = $('#ghToken'); if(gi) gi.type = (gi.type === 'password' ? 'text' : 'password');
     return;
@@ -2487,6 +2747,7 @@ function cloudPayload(src){
   if(c.settings && c.settings.sync) c.settings.sync.pass = '';
   if(c.settings && c.settings.report) c.settings.report.webhook = '';
   if(c.settings && c.settings.gh) c.settings.gh.token = '';
+  if(c.settings && c.settings.ai) c.settings.ai.key = '';
   return c;
 }
 /* 从云端/外部恢复时，保留本机已填的凭证，避免同步被自己清断 */
@@ -2498,6 +2759,8 @@ function keepLocalSecrets(next, prev){
     var pg = (pv.settings || {}).gh || {};
     if(next.settings && next.settings.gh && !next.settings.gh.token && pg.token) next.settings.gh.token = pg.token;
     if(next.settings && next.settings.gh && !next.settings.gh.gistId && pg.gistId) next.settings.gh.gistId = pg.gistId;
+    var pai = (pv.settings || {}).ai || {};
+    if(next.settings && next.settings.ai && !next.settings.ai.key && pai.key) next.settings.ai.key = pai.key;
   }catch(e){}
   return next;
 }
@@ -2591,6 +2854,7 @@ function mergeStates(local, remote){
 
   // 做题记录：并集
   out.quizLog = Object.assign({}, older.quizLog || {}, newer.quizLog || {});
+  out.skillsDone = Object.assign({}, older.skillsDone || {}, newer.skillsDone || {});
 
   // 轮换偏移：取较大值，避免内容跳来跳去
   out.archiveOffset = Math.max(older.archiveOffset || 0, newer.archiveOffset || 0);
@@ -2745,6 +3009,11 @@ function loadSnapList(){
   });
 }
 
+$('#aiFab').addEventListener('click', function(){ openTeacher(); });
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Enter' && !e.shiftKey && e.target && e.target.id === 'aiInput'){ e.preventDefault(); aiSend(); }
+});
+
 /* ================= 手势（收纳模式） ================= */
 (function gestures(){
   var sx = 0, sy = 0, active = false, moved = false;
@@ -2777,7 +3046,7 @@ function loadSnapList(){
 var PAGES = {
   'countdown':renderCountdown, 'plans':renderPlans, 'politics':renderPolitics, 'common':renderCommon,
   'verbal':renderVerbal, 'logic':renderLogic, 'math':renderMath, 'data':renderData, 'stats':renderStats,
-  'sl-small':renderSlSmall, 'sl-big':renderSlBig, 'wrong':renderWrong
+  'sl-small':renderSlSmall, 'sl-big':renderSlBig, 'wrong':renderWrong, 'skills':renderSkills
 };
 function route(){
   var key = (location.hash || '#countdown').replace('#','');
