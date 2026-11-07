@@ -1379,36 +1379,42 @@ function parseSkillFile(name, text){
 function importSkillFiles(files){
   var arr = Array.prototype.slice.call(files || []);
   if(!arr.length) return;
-  var done = 0, added = 0;
-  arr.forEach(function(f){
+  var i = 0, added = 0;
+  function doneAll(){
+    teacherCache = null;
+    renderTeacherList();
+    toast('导入完成：' + (added || arr.length) + ' 个文件');
+  }
+  function next(){
+    if(i >= arr.length){ doneAll(); return; }
+    var f = arr[i++];
     var fr = new FileReader();
     fr.onload = function(){
-      try{
-        var text = String(fr.result || '');
-        var meta = parseSkillFile(f.name, text);
-        var id = 'sk_' + f.name.replace(/[^\w\u4e00-\u9fa5]+/g, '_').slice(0, 40) + '_' + f.size;
-        idbPut('skill:' + id, { id:id, name:meta.name, mod:meta.mod, desc:meta.desc, size:f.size, text:text }).then(function(){
-          return idbGet('skillindex');
-        }).then(function(list){
+      var text = String(fr.result || '');
+      var meta = parseSkillFile(f.name, text);
+      var id = 'sk_' + f.name.replace(/[^\w\u4e00-\u9fa5]+/g, '_').slice(0, 40) + '_' + f.size;
+      idbPut('skill:' + id, { id:id, name:meta.name, mod:meta.mod, desc:meta.desc, size:f.size, text:text })
+        .then(function(){ return idbGet('skillindex'); })
+        .then(function(list){
           list = list || [];
+          var same = list.filter(function(x){ return x.name === meta.name; })[0];
+          if(same && same.id !== id){
+            list = list.filter(function(x){ return x.name !== meta.name; });
+            idbDel('skill:' + same.id);
+          }
           if(!list.filter(function(x){ return x.id === id; }).length){
             list.push({ id:id, name:meta.name, mod:meta.mod, desc:meta.desc, size:f.size });
             added++;
           }
           return idbPut('skillindex', list);
-        }).catch(function(){}).finally(function(){
-          done++;
-          if(done === arr.length){
-            teacherCache = null;
-            renderTeacherList();
-            toast('导入完成：' + (added || arr.length) + ' 个文件');
-          }
-        });
-      }catch(e){ done++; }
+        })
+        .catch(function(){})
+        .then(next, next);
     };
-    fr.onerror = function(){ done++; };
+    fr.onerror = next;
     fr.readAsText(f);
-  });
+  }
+  next();
 }
 function openTeacherSkill(id){
   idbGet('skill:' + id).then(function(rec){
