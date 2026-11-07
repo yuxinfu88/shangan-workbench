@@ -341,7 +341,7 @@ textarea.inp{min-height:72px;resize:vertical;line-height:1.6}
 /* 统计条 */
 .stat{background:var(--card2);border-radius:var(--r-md);padding:12px 14px;border:1px solid #f6ecdd}
 .stat .k{font-size:var(--fs-sm);color:var(--ink2)}
-.stat .v{font-size:calc(var(--fs-h1) * .86);font-weight:800;color:var(--ink);line-height:1.25;font-variant-numeric:tabular-nums}
+.stat .v{font-size:calc(var(--fs-h1) * .86);font-weight:800;color:var(--ink);line-height:1.25;font-variant-numeric:tabular-nums;white-space:nowrap}
 .stat .v small{font-size:var(--fs-sm);font-weight:600;color:var(--ink2);margin-left:2px}
 
 /* 迷你柱状图 */
@@ -2163,7 +2163,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 02:10';
+var APP_BUILD = '2026-11-08 · 02:20';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
