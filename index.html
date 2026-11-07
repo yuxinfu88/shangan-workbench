@@ -2233,7 +2233,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 02:45';
+var APP_BUILD = '2026-11-08 · 02:55';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -2943,6 +2943,7 @@ document.addEventListener('click', function(e){
       if(i === (wcur.answer || 0)) el.classList.add('right');
       else if(i === pick) el.classList.add('wrong');
     });
+    wcur._lastOk = okAns;
     if(okAns) redoResult.ok++; else redoResult.fail++;
     revealRedo(wcur, okAns);
     return;
@@ -2952,6 +2953,7 @@ document.addEventListener('click', function(e){
     if(!ws || ws._answered) return;
     ws._answered = 1;
     var okSelf = t.getAttribute('data-ok') === '1';
+    ws._lastOk = okSelf;
     if(okSelf) redoResult.ok++; else redoResult.fail++;
     revealRedo(ws, okSelf);
     return;
@@ -2963,7 +2965,7 @@ document.addEventListener('click', function(e){
       if(t.getAttribute('data-master') === '1'){ wn.mastered = true; wn.redoPass = (wn.redoPass || 0) + 1; }
       else { wn.date = todayStr(); wn.redoFail = (wn.redoFail || 0) + 1; wn.mastered = false; }
       state.redoLog = state.redoLog || [];
-      state.redoLog.push({ id:wn.id, date:todayStr(), ok:!!(wn.mastered) });
+      state.redoLog.push({ id:wn.id, date:todayStr(), ok:!!wn._lastOk });
       saveNow();
     }
     redoIndex++;
