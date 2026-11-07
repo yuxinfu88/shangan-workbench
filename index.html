@@ -1326,12 +1326,17 @@ function loadTeachers(){
 }
 function skillsLibraryHTML(){
   return '<div class="card"><div class="card-head"><h2>📚 老师技能库</h2><span class="tag">本机</span>' +
-    '<span class="right"><button class="btn sm primary" data-act="skill-import">＋ 导入 .md</button></span></div>' +
+    '<span class="right"><button class="btn sm" data-act="skill-import">📄 选文件</button></span></div>' +
     '<div class="imp" id="impZone">' +
     '<div style="font-size:22px">📥</div>' +
     '<b>把老师技能包（.md）拖进来或点这里选择</b>' +
-    '<div class="tiny muted" style="margin-top:6px;line-height:1.7">支持多选，一次可以导入整批。<b>全文只存在这台设备</b>（IndexedDB），不上传、不进仓库、不进备份。<br>导入后可点「问这位老师」，AI 会用他的方法论讲题。</div>' +
+    '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px">' +
+    '<button class="btn primary" data-act="skill-import-all">📁 一键全量导入（选整个文件夹）</button>' +
+    '</div>' +
+    '<div class="tiny muted" style="margin-top:6px;line-height:1.7">选你那个 skill 文件夹就行，里面的 .md 会全部导入（子文件夹也扫）。<b>全文只存在这台设备</b>（IndexedDB），不上传、不进仓库、不进备份。<br>导入后可点「问这位老师」，AI 会用他的方法论讲题。</div>' +
+    '<div id="impProg" class="tiny" style="margin-top:8px;color:#4a8dba;font-weight:700"></div>' +
     '<input type="file" id="skillFile" accept=".md,.markdown,.txt" multiple style="display:none">' +
+    '<input type="file" id="skillDir" webkitdirectory directory multiple style="display:none">' +
     '</div>' +
     '<div id="teacherList"><div class="tiny muted" style="margin-top:10px">读取中…</div></div></div>';
 }
@@ -1376,25 +1381,34 @@ function parseSkillFile(name, text){
   }
   return { name: title, desc: desc, mod: skillModOf(title + ' ' + desc) };
 }
-function importSkillFiles(files){
-  var arr = Array.prototype.slice.call(files || []);
-  if(!arr.length) return;
-  var i = 0, added = 0;
-  function doneAll(){
-    teacherCache = null;
-    renderTeacherList();
-    idbGet('skillindex').then(function(l){
-      toast('已处理 ' + arr.length + ' 个文件，技能库共 ' + ((l || []).length) + ' 位老师');
-    }).catch(function(){ toast('导入完成'); });
-  }
+function importSkillFiles(files, fromDir){
+  var all = Array.prototype.slice.call(files || []);
+  var arr = all.filter(function(f){ return /\.(md|markdown|txt)$/i.test(f.name) && f.name.indexOf('~$') !== 0; });
+  if(!arr.length){ toast('没找到 .md 文件' + (all.length ? '（选了 ' + all.length + ' 个其他类型）' : '')); return; }
+  var i = 0, ok = 0, fail = 0;
+  function prog(txt){ var p = $('#impProg'); if(p) p.textContent = txt; }
+  prog('准备导入 ' + arr.length + ' 个文件…');
   function next(){
-    if(i >= arr.length){ doneAll(); return; }
+    if(i >= arr.length){
+      teacherCache = null;
+      renderTeacherList();
+      idbGet('skillindex').then(function(l){
+        var n = (l || []).length;
+        prog('✅ 完成：本次处理 ' + arr.length + ' 个（成功 ' + ok + '，失败 ' + fail + '），技能库共 ' + n + ' 位老师');
+        toast('导入完成，共 ' + n + ' 位老师');
+      }).catch(function(){ prog('✅ 完成'); });
+      return;
+    }
     var f = arr[i++];
+    prog('正在导入 ' + i + ' / ' + arr.length + '：' + f.name);
     var fr = new FileReader();
     fr.onload = function(){
       var text = String(fr.result || '');
-      var meta = parseSkillFile(f.name, text);
-      var id = 'sk_' + f.name.replace(/[^\w\u4e00-\u9fa5]+/g, '_').slice(0, 40) + '_' + f.size;
+      var meta, id;
+      try{
+        meta = parseSkillFile(f.name, text);
+        id = 'sk_' + f.name.replace(/[^\w\u4e00-\u9fa5]+/g, '_').slice(0, 40) + '_' + f.size;
+      }catch(e){ fail++; next(); return; }
       idbPut('skill:' + id, { id:id, name:meta.name, mod:meta.mod, desc:meta.desc, size:f.size, text:text })
         .then(function(){ return idbGet('skillindex'); })
         .then(function(list){
@@ -1406,14 +1420,12 @@ function importSkillFiles(files){
           }
           if(!list.filter(function(x){ return x.id === id; }).length){
             list.push({ id:id, name:meta.name, mod:meta.mod, desc:meta.desc, size:f.size });
-            added++;
           }
           return idbPut('skillindex', list);
         })
-        .catch(function(){})
-        .then(next, next);
+        .then(function(){ ok++; next(); }, function(){ fail++; next(); });
     };
-    fr.onerror = next;
+    fr.onerror = function(){ fail++; next(); };
     fr.readAsText(f);
   }
   next();
@@ -2012,7 +2024,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 00:40';
+var APP_BUILD = '2026-11-08 · 01:05';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -2705,6 +2717,12 @@ document.addEventListener('click', function(e){
     var fi = $('#skillFile'); if(fi) fi.click();
     return;
   }
+  if(act === 'skill-import-all'){
+    var fd = $('#skillDir');
+    if(!fd){ toast('这个浏览器不支持选文件夹，请用「📄 选文件」多选'); return; }
+    fd.click();
+    return;
+  }
   if(act === 'teacher-ask'){ openTeacherSkill(t.getAttribute('data-id')); return; }
   if(act === 'teacher-preview'){ previewTeacherSkill(t.getAttribute('data-id')); return; }
   if(act === 'teacher-del'){
@@ -3167,7 +3185,8 @@ function loadSnapList(){
 }
 
 document.addEventListener('change', function(e){
-  if(e.target && e.target.id === 'skillFile'){ importSkillFiles(e.target.files); }
+  if(e.target && e.target.id === 'skillFile'){ importSkillFiles(e.target.files, false); }
+  if(e.target && e.target.id === 'skillDir'){ importSkillFiles(e.target.files, true); }
 });
 document.addEventListener('dragover', function(e){
   if(e.target && e.target.closest && e.target.closest('#impZone')){ e.preventDefault(); }
