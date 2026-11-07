@@ -811,7 +811,7 @@ const DEF_STATE = {
   archiveOffset:0,
   settings:{ font:'m', pinned:true, sync:{ url:'', user:'', pass:'', lastSync:'', connected:false },
             gh:{ token:'', gistId:'', auto:false, lastSync:'' },
-            ai:{ base:'https://api.deepseek.com/v1', model:'deepseek-chat', key:'' },
+            ai:{ base:'https://api.deepseek.com/v1', model:'deepseek-flash', key:'' },
             report:{ webhook:'', email:'', auto:true, lastPush:'' } }
 };
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
@@ -1575,7 +1575,7 @@ var AI_SYS = '你是一位带过十届国省考的公考老师，讲题风格固
 var aiHistory = [], aiBusy = false;
 
 function aiCfg(){
-  if(!state.settings.ai) state.settings.ai = { base:'https://api.deepseek.com/v1', model:'deepseek-chat', key:'' };
+  if(!state.settings.ai) state.settings.ai = { base:'https://api.deepseek.com/v1', model:'deepseek-flash', key:'' };
   return state.settings.ai;
 }
 var aiSysExtra = '';
@@ -2289,7 +2289,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 03:25';
+var APP_BUILD = '2026-11-08 · 03:40';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -2774,13 +2774,14 @@ function openSettings(){
     '</details>' +
     '<div class="field"><label>🤖 AI 助教（问老师）</label>' +
     '<div class="tiny" style="background:#f6f9fd;border:1px solid #dbe8f5;border-radius:12px;padding:8px 10px;margin-bottom:8px;line-height:1.7">' +
-    '已实测允许浏览器直连的接口：<b>DeepSeek</b>、<b>阿里百炼</b>、<b>硅基流动</b>；Moonshot、智谱不支持跨域，填了会失败。Key 只存本机。</div>' +
+    '已实测允许浏览器直连的接口：<b>DeepSeek</b>、<b>阿里百炼</b>、<b>硅基流动</b>；Moonshot、智谱不支持跨域。Key 只存本机。<br><b>DeepSeek 现用模型名</b>：deepseek-flash（便宜够用）/ deepseek-v4-pro（更强更贵）；deepseek-chat 是已弃用的旧名。</div>' +
     '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
-    '<button class="btn sm" data-act="ai-preset" data-base="https://api.deepseek.com/v1" data-model="deepseek-chat">DeepSeek</button>' +
+    '<button class="btn sm" data-act="ai-preset" data-base="https://api.deepseek.com/v1" data-model="deepseek-flash">DeepSeek Flash</button>' +
+    '<button class="btn sm" data-act="ai-preset" data-base="https://api.deepseek.com/v1" data-model="deepseek-v4-pro">DeepSeek Pro</button>' +
     '<button class="btn sm" data-act="ai-preset" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-plus">阿里百炼</button>' +
     '<button class="btn sm" data-act="ai-preset" data-base="https://api.siliconflow.cn/v1" data-model="Qwen/Qwen2.5-7B-Instruct">硅基流动</button></div>' +
     '<input class="inp" id="aiBase" data-ai-field="base" placeholder="接口地址" value="' + esc((state.settings.ai || {}).base || '') + '">' +
-    '<input class="inp" id="aiModel" data-ai-field="model" style="margin-top:6px" placeholder="模型名，如 deepseek-chat" value="' + esc((state.settings.ai || {}).model || '') + '">' +
+    '<input class="inp" id="aiModel" data-ai-field="model" style="margin-top:6px" placeholder="模型名，如 deepseek-flash / deepseek-v4-pro" value="' + esc((state.settings.ai || {}).model || '') + '">' +
     '<div style="display:flex;gap:8px;margin-top:6px">' +
     '<input class="inp" id="aiKey" type="password" autocomplete="off" data-ai-field="key" placeholder="API Key（sk-...）" value="' + esc((state.settings.ai || {}).key || '') + '">' +
     '<button class="btn sm" data-act="ai-key-eye" style="flex:0 0 auto">👁</button>' +
@@ -3880,6 +3881,15 @@ setInterval(autoSyncTick, 60000);
 
 /* ================= 启动 ================= */
 function boot(){
+  try{
+    var ai0 = state.settings.ai || {};
+    if(ai0.model === 'deepseek-chat' || ai0.model === 'deepseek-reasoner'){
+      var was = ai0.model;
+      ai0.model = 'deepseek-flash';
+      state.settings.ai = ai0; save();
+      setTimeout(function(){ toast('模型名 ' + was + ' 已升级为 deepseek-flash（官方改名）'); }, 1800);
+    }
+  }catch(e){}
   try{ ensureToday(); }catch(e){}
   try{ renderNav(); }catch(e){}
   try{ renderProfile(); }catch(e){}
