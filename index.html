@@ -756,7 +756,8 @@ const DEF_STATE = {
   wrong:[],
   quizLog:{},
   archiveOffset:0,
-  settings:{ font:'m', pinned:true, sync:{ url:'', user:'', pass:'', lastSync:'', connected:false } }
+  settings:{ font:'m', pinned:true, sync:{ url:'', user:'', pass:'', lastSync:'', connected:false },
+            report:{ webhook:'', email:'', auto:true, lastPush:'' } }
 };
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
 function deepMerge(base, patch){
@@ -1547,6 +1548,107 @@ function adviceFor(cat){
   };
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
+var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
+function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
+function weekBounds(offsetWeeks){
+  var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
+  return { start:s, end:new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6) };
+}
+function wrongIn(r){
+  return state.wrong.filter(function(w){
+    var d = parseDate(w.date);
+    return d >= r.start && d <= r.end;
+  });
+}
+function statRange(r){
+  var c = 0, rt = 0, mn = 0;
+  for(var d = new Date(r.start); d <= r.end; d.setDate(d.getDate() + 1)){
+    var s = totalOf(dstr(d)); c += s.count; rt += s.right; mn += s.min;
+  }
+  return { count:c, right:rt, min:mn };
+}
+function daysSince(s){
+  return Math.round((parseDate(todayStr()).getTime() - parseDate(s).getTime()) / 86400000);
+}
+
+/* 生成本周错题周报（纯文本，飞书/邮件通用） */
+function buildWeekReport(){
+  var cur = weekBounds(0), prev = weekBounds(-1);
+  var now = wrongIn(cur), old = wrongIn(prev);
+  var cats = {};
+  now.forEach(function(w){ cats[w.cat] = (cats[w.cat] || 0) + 1; });
+  var list = Object.keys(cats).map(function(k){ return { cat:k, n:cats[k] }; }).sort(function(x, y){ return y.n - x.n; });
+  var st = statRange(cur);
+  var pending = state.wrong.filter(function(w){ return !w.mastered && daysSince(w.date) >= 3; })
+                 .sort(function(x, y){ return x.date < y.date ? -1 : 1; }).slice(0, 5);
+  var diff = now.length - old.length;
+  var trend = now.length === 0 ? '' : (diff > 0 ? '（比上周多 ' + diff + ' 题）' : (diff < 0 ? '（比上周少 ' + (-diff) + ' 题）' : '（与上周持平）'));
+  var nick = state.profile.nick || '备考兔';
+  var lines = [];
+  lines.push('📕 上岸工作台 · 错题周报');
+  lines.push(nick + '　' + fmtMD(cur.start) + ' – ' + fmtMD(cur.end));
+  lines.push('');
+  lines.push(now.length ? ('本周新增 ' + now.length + ' 题' + trend) : '本周没有新增错题 🐰');
+  if(list.length){
+    lines.push('板块分布：' + list.map(function(x){ return x.cat + ' ' + x.n; }).join(' · '));
+    lines.push('薄弱点：' + list[0].cat + '（' + list[0].n + ' 题）');
+    lines.push('建议：' + adviceFor(list[0].cat));
+  }
+  lines.push('');
+  lines.push('📊 本周学习：做题 ' + st.count + ' 道 · ' + st.min + ' 分钟 · 正确率 ' + (st.count ? Math.round(st.right / st.count * 100) + '%' : '—'));
+  lines.push('📕 错题本累计 ' + state.wrong.length + ' 题，未攻克 ' + state.wrong.filter(function(w){ return !w.mastered; }).length + ' 题');
+  if(pending.length){
+    lines.push('');
+    lines.push('🔁 到期待复做（≥3 天）：');
+    pending.forEach(function(w, i){
+      lines.push('  ' + (i + 1) + '. ' + w.title + '（' + w.cat + '，' + daysSince(w.date) + ' 天前）');
+    });
+  }
+  lines.push('');
+  lines.push('👉 回工作台继续：' + APP_URL);
+  return { text:lines.join('\n'), newCount:now.length, subject:'【错题周报】' + fmtMD(cur.start) + '–' + fmtMD(cur.end) + ' 新增 ' + now.length + ' 题' };
+}
+
+function copyText(txt){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){ toast('✅ 周报已复制，去飞书粘贴即可'); },
+      function(){ fallbackCopy(txt); });
+  } else fallbackCopy(txt);
+}
+function fallbackCopy(txt){
+  try{
+    var ta = document.createElement('textarea');
+    ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+    toast('✅ 已复制');
+  }catch(e){ toast('复制失败，请手动长按选中'); }
+}
+function feishuPush(text, cb){
+  var hook = (state.settings.report || {}).webhook;
+  if(!hook){ toast('先在 ⚙️ 设置里填飞书机器人 webhook'); if(cb) cb(false); return; }
+  fetch(hook, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body:JSON.stringify({ msg_type:'text', content:{ text:text } })
+  }).then(function(r){ return r.json().catch(function(){ return {}; }); })
+    .then(function(j){
+      var ok = (j.code === 0) || (j.StatusCode === 0) || (j.status_code === 0);
+      if(ok){ state.settings.report.lastPush = new Date().toISOString(); save(); toast('✅ 已推送到飞书'); }
+      else toast('推送失败：' + (j.msg || j.msg_type || 'webhook 可能已失效'));
+      if(cb) cb(ok);
+    })
+    .catch(function(){ toast('推送失败：网络异常或 webhook 地址不对'); if(cb) cb(false); });
+}
+function maybeAutoWeeklyPush(){
+  var r = state.settings.report || {};
+  if(!r.auto || !r.webhook) return;
+  if(r.lastPush && (Date.now() - new Date(r.lastPush).getTime()) < 6.5 * 86400000) return;
+  var rep = buildWeekReport();
+  if(!rep.newCount) return;
+  setTimeout(function(){ feishuPush(rep.text); }, 2200);
+}
+
 function renderWrong(){
   var list = state.wrong.slice().sort(function(a, b){ return a.date < b.date ? 1 : -1; });
   var ws = weeklySummary();
@@ -1597,6 +1699,22 @@ function renderWrong(){
       '<div class="tiny muted">复习建议：把本周错题在 3 天后、7 天后各重做一次，两遍都对的标"已攻克"。</div>';
   }
   html += '</div>';
+
+  var rep = buildWeekReport();
+  var rp = state.settings.report || {};
+  html += '<div class="card"><div class="card-head"><h2>📨 本周错题周报</h2><span class="tag mint">自动生成</span>' +
+    '<span class="right tiny muted">' + (rp.auto ? '自动：开' : '自动：关') + '</span></div>' +
+    '<div class="explain" style="white-space:pre-wrap;max-height:240px;overflow:auto;font-size:calc(var(--fs-sm) - .5px);line-height:1.8">' + esc(rep.text) + '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">' +
+    '<button class="btn sm primary" data-act="report-feishu">📤 推送到飞书</button>' +
+    '<button class="btn sm" data-act="report-copy">📋 复制</button>' +
+    '<button class="btn sm" data-act="report-mail">✉️ 邮件</button>' +
+    '<button class="btn sm ghost" data-act="report-toggle">' + (rp.auto ? '⏸ 关闭自动' : '▶️ 开启自动') + '</button></div>' +
+    '<div class="tiny muted" style="margin-top:9px;line-height:1.7">' +
+    (rp.webhook
+      ? ('飞书机器人已配置 · 上次推送：' + (rp.lastPush ? rp.lastPush.slice(0, 10) + ' ' + rp.lastPush.slice(11, 16) : '尚未推送') + '。开启自动后，每周首次打开工作台会自动发一次（每周最多一条）。')
+      : '还没配飞书机器人：⚙️ 设置 → 周报推送 → 粘贴飞书群机器人 webhook，配置后每周首次打开工作台自动推送。') +
+    '</div></div>';
   return html;
 }
 
@@ -1718,6 +1836,13 @@ function openSettings(){
     '<button class="btn sm" data-act="sync-up">⬆️ 上传备份</button>' +
     '<button class="btn sm" data-act="sync-down">⬇️ 下载备份</button></div>' +
     '<div class="tiny muted" style="margin-top:6px">不填也能正常用：默认纯本地保存，侧边栏会显示「💾 本地保存 · 未连接」。同步需要你的服务端允许跨域。</div></div>' +
+    '<div class="field"><label>📨 周报推送（飞书 / 邮件）</label>' +
+    '<input class="inp" id="rpWebhook" data-report-field="webhook" placeholder="飞书群机器人 webhook：https://open.feishu.cn/open-apis/bot/v2/hook/..." value="' + esc((state.settings.report || {}).webhook || '') + '">' +
+    '<div class="tiny muted" style="margin-top:5px">飞书群 → 右上「设置」→ 群机器人 → 添加机器人 → 自定义机器人 → 复制 webhook 地址</div>' +
+    '<input class="inp" id="rpEmail" data-report-field="email" style="margin-top:8px" inputmode="email" placeholder="接收邮箱（可选，点「邮件」时用）" value="' + esc((state.settings.report || {}).email || '') + '">' +
+    '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">' +
+    '<button class="btn sm" data-act="report-test">🚀 发一条测试消息</button>' +
+    '<button class="btn sm" data-act="report-autotoggle">' + ((state.settings.report || {}).auto ? '⏸ 关闭自动周报' : '▶️ 开启自动周报') + '</button></div></div>' +
     '<div class="field"><label style="color:#c9604f">危险操作</label>' +
     '<button class="btn sm coral" data-act="data-clear">🗑️ 清空全部数据</button></div>' +
     '<div class="modal-actions"><button class="btn primary" data-act="modal-close">完成</button></div>' +
@@ -1741,6 +1866,16 @@ document.addEventListener('change', function(e){
     if(field === 'count' && v === 0) s.right = 0;
     save();
     toast('已保存：' + cat + ' ' + v);
+  }
+});
+document.addEventListener('change', function(e){
+  var t = e.target;
+  if(t && t.getAttribute && t.getAttribute('data-report-field')){
+    var f = t.getAttribute('data-report-field');
+    state.settings.report[f] = (t.value || '').trim();
+    save();
+    if(f === 'webhook') toast(state.settings.report.webhook ? 'webhook 已保存' : 'webhook 已清空');
+    else toast('邮箱已保存');
   }
 });
 $('#setBtn') && $('#setBtn').addEventListener('click', openSettings);
@@ -1948,6 +2083,29 @@ document.addEventListener('click', function(e){
     saveNow(); renderProfile(); applySettings(); route(); closeModal(); toast('已清空');
     return;
   }
+  if(act === 'report-copy'){ copyText(buildWeekReport().text); return; }
+  if(act === 'report-feishu'){ feishuPush(buildWeekReport().text); return; }
+  if(act === 'report-mail'){
+    var rp3 = state.settings.report || {};
+    if(!rp3.email){ toast('先在 ⚙️ 设置里填接收邮箱'); return; }
+    var rep3 = buildWeekReport();
+    location.href = 'mailto:' + encodeURIComponent(rp3.email) + '?subject=' + encodeURIComponent(rep3.subject) + '&body=' + encodeURIComponent(rep3.text.slice(0, 1500));
+    return;
+  }
+  if(act === 'report-toggle' || act === 'report-autotoggle'){
+    state.settings.report.auto = !state.settings.report.auto;
+    save();
+    toast(state.settings.report.auto ? '已开启自动周报' : '已关闭自动周报');
+    if(act === 'report-toggle') rerender(); else closeModal();
+    return;
+  }
+  if(act === 'report-test'){
+    var hookTest = ($('#rpWebhook') || {}).value || '';
+    if(hookTest.trim()) state.settings.report.webhook = hookTest.trim();
+    save();
+    feishuPush('🐰 上岸工作台：飞书推送已连通，之后每周会把错题周报送这里。\n' + APP_URL);
+    return;
+  }
   if(act === 'sync-test' || act === 'sync-up' || act === 'sync-down'){ doSync(act); return; }
   if(act === 'reload'){ location.reload(); return; }
 });
@@ -2078,6 +2236,7 @@ function boot(){
   try{ renderProfile(); }catch(e){}
   try{ applySettings(); }catch(e){}
   route();
+  try{ maybeAutoWeeklyPush(); }catch(e){}
 }
 window.addEventListener('error', function(e){
   try{ toast('出现小问题：' + (e.message || '').slice(0, 30)); }catch(err){}
