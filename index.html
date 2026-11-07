@@ -1659,6 +1659,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
+var APP_BUILD = '2026-11-07 · 23:00';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -1966,7 +1967,9 @@ function openSettings(){
     '<button class="btn sm" data-act="gh-pull">⬇️ 下载</button>' +
     '<button class="btn sm' + ((state.settings.gh || {}).auto ? ' primary' : '') + '" data-act="gh-auto">' + ((state.settings.gh || {}).auto ? '🔁 自动同步：已开' : '🔁 自动同步：关') + '</button>' +
     '<button class="btn sm ghost" data-act="gh-clear">断开</button></div></div>' +
-    '<div class="field"><label>云同步（自建 WebDAV · 可选）</label>' +
+    '<details style="margin:4px 0 12px;border:1px solid #eee2d4;border-radius:14px;padding:2px 10px;background:#fffdf9">' +
+    '<summary style="cursor:pointer;font-size:var(--fs-sm);font-weight:700;color:#8b7b6c;padding:8px 0">⚙️ 高级：自建 WebDAV（坚果云等商业网盘不可用，点开看）</summary>' +
+    '<div class="field" style="margin-top:6px"><label style="display:none">WebDAV</label>' +
     '<input class="inp" id="syncUrl" placeholder="https://dav.example.com/remote.php/dav/files/用户名/" value="' + esc(s.url || '') + '">' +
     '<div class="inp-row" style="margin-top:8px"><input class="inp" id="syncUser" placeholder="账号" value="' + esc(s.user || '') + '">' +
     '<input class="inp" id="syncPass" type="password" placeholder="密码 / 应用密码" value="' + esc(s.pass || '') + '"></div>' +
@@ -1975,6 +1978,7 @@ function openSettings(){
     '<button class="btn sm" data-act="sync-up">⬆️ 上传备份</button>' +
     '<button class="btn sm" data-act="sync-down">⬇️ 下载备份</button></div>' +
     '<div class="tiny" style="margin-top:8px;background:#fff3ef;border:1px solid #fbd6ce;border-radius:12px;padding:8px 10px;color:#a9604f;line-height:1.65">⚠️ 坚果云等商业网盘<b>不允许浏览器跨域</b>，这里连会一直失败（不是配置错）；只有自己搭建、并已开启 CORS 的 WebDAV（群晖/Nextcloud）才能用。日常请用上面的 GitHub Gist。上传的文件<b>不含</b>你的密码和 webhook。</div></div>' +
+    '</details>' +
     '<div class="field"><label>📨 周报推送（飞书 / 邮件）</label>' +
     '<div style="display:flex;gap:8px">' +
     '<input class="inp" id="rpWebhook" type="password" autocomplete="off" data-report-field="webhook" placeholder="飞书群机器人 webhook：https://open.feishu.cn/open-apis/bot/v2/hook/..." value="' + esc((state.settings.report || {}).webhook || '') + '">' +
@@ -2008,7 +2012,7 @@ function openSettings(){
     '· 唯一会上传数据的出口是「云同步」和「推送到飞书」，两者都由你手动填地址；<br>' +
     '· 导出的备份默认不含密码和 webhook；<br>' +
     '· 手机/电脑各自独立，换设备用「导出/导入」搬。</div></div>' +
-    '<div class="tiny muted" style="margin-top:10px;line-height:1.7">上岸工作台 · 单文件离线版<br><b>内容性质</b>：时政、大作文素材、官方金句＝真实来源（附链接/出处）；言语、逻辑、数量例题、资料检验题、申论小题＝按公考题型自编的模拟题，<b>不是真题原文</b>。<br>时政数据包更新于 ' + NEWS_PACK_DATE + '。</div>',
+    '<div class="tiny muted" style="margin-top:10px;line-height:1.7">上岸工作台 · 单文件离线版 · 构建 ' + APP_BUILD + '<br><b>内容性质</b>：时政、大作文素材、官方金句＝真实来源（附链接/出处）；言语、逻辑、数量例题、资料检验题、申论小题＝按公考题型自编的模拟题，<b>不是真题原文</b>。<br>时政数据包更新于 ' + NEWS_PACK_DATE + '。</div>',
     function(){ loadSnapList(); }
   );
 }
