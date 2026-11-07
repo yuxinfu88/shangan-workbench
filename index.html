@@ -2532,7 +2532,29 @@ function ghPush(text, silent){
     })
     .catch(function(e){ if(!silent) toast('同步失败：' + e.message); });
 }
+/* 新设备没有 gistId 时：在自己账号的 gist 列表里找回备份 */
+function ghEnsureGist(cb){
+  var g = ghCfg();
+  if(g.gistId){ cb(null, g.gistId); return; }
+  fetch('https://api.github.com/gists?per_page=100', { headers: ghHeaders() })
+    .then(ghJson)
+    .then(function(list){
+      var hit = (list || []).filter(function(x){ return x.files && x.files[GH_FILE]; })[0];
+      if(!hit) throw new Error('云端还没有备份：先在有数据那台点「上传」');
+      g.gistId = hit.id; save();
+      cb(null, hit.id);
+    })
+    .catch(function(e){ cb(e); });
+}
 function ghPull(interactive){
+  var g = ghCfg();
+  if(!g.token){ if(interactive) toast('先填 GitHub token'); return; }
+  ghEnsureGist(function(err){
+    if(err){ if(interactive) toast('读取失败：' + err.message); return; }
+    doGhPull(interactive);
+  });
+}
+function doGhPull(interactive){
   var g = ghCfg();
   if(!g.token || !g.gistId){ if(interactive) toast('先填 token 并上传一次'); return; }
   fetch('https://api.github.com/gists/' + g.gistId, { headers: ghHeaders() })
