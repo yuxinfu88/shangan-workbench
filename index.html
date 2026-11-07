@@ -1314,9 +1314,13 @@ const SKILLS = [
 var teacherCache = null;
 function skillModOf(text){
   var s = String(text || '');
-  var m = ['判断推理','判断','图推','资料','言语','数量','申论','综应','面试','公安','政治','常识','执法'];
+  var K = [['判断推理','判断'],['判断','判断'],['逻辑','判断'],['类比','判断'],['定义','判断'],
+           ['图推','图推'],['资料','资料'],['言语','言语'],['数量','数量'],
+           ['申论','申论'],['大作文','申论'],['作文','申论'],
+           ['综应','综应'],['综B','综应'],['综b','综应'],['面试','面试'],
+           ['公安','公安'],['政常','政治'],['政治','政治'],['常识','常识'],['执法','执法']];
   var best = '', pos = 1e9;
-  m.forEach(function(k){ var p = s.indexOf(k); if(p >= 0 && p < pos){ pos = p; best = k === '判断推理' ? '判断' : k; } });
+  K.forEach(function(pair){ var p = s.indexOf(pair[0]); if(p >= 0 && p < pos){ pos = p; best = pair[1]; } });
   return best || '其他';
 }
 function skillTail(name){
@@ -2040,7 +2044,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 01:15';
+var APP_BUILD = '2026-11-08 · 01:22';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
