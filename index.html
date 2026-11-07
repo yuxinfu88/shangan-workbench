@@ -354,6 +354,12 @@ textarea.inp{min-height:72px;resize:vertical;line-height:1.6}
 .empty{text-align:center;color:var(--ink3);font-size:var(--fs-sm);padding:22px 10px;line-height:1.8}
 .empty .big{font-size:30px;display:block;margin-bottom:6px}
 
+/* 错因 chip */
+.chip{display:inline-block;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:#fff;
+  font-size:calc(var(--fs-sm) - .5px);color:var(--ink2);cursor:pointer;line-height:1.3}
+.chip:hover{background:var(--blue-l)}
+.chip.on{background:#e8f8f1;border-color:#a8e6cf;color:#3f9b78;font-weight:700}
+
 /* 错题卡 */
 .wrong-card{background:var(--card2);border:1px solid #f6ecdd;border-radius:var(--r-md);padding:14px;margin-bottom:10px}
 .wrong-card.mastered{opacity:.55}
@@ -2157,7 +2163,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 01:45';
+var APP_BUILD = '2026-11-08 · 02:10';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -2182,36 +2188,33 @@ function daysSince(s){
 
 /* 生成本周错题周报（纯文本，飞书/邮件通用） */
 function buildWeekReport(){
-  var cur = weekBounds(0), prev = weekBounds(-1);
-  var now = wrongIn(cur), old = wrongIn(prev);
-  var cats = {};
-  now.forEach(function(w){ cats[w.cat] = (cats[w.cat] || 0) + 1; });
-  var list = Object.keys(cats).map(function(k){ return { cat:k, n:cats[k] }; }).sort(function(x, y){ return y.n - x.n; });
+  var an = analyzeWeek();
+  var cur = an.range;
+  var now = wrongIn(cur), old = wrongIn(weekBounds(-1));
   var st = statRange(cur);
   var pending = state.wrong.filter(function(w){ return !w.mastered && daysSince(w.date) >= 3; })
                  .sort(function(x, y){ return x.date < y.date ? -1 : 1; }).slice(0, 5);
-  var diff = now.length - old.length;
-  var trend = now.length === 0 ? '' : (diff > 0 ? '（比上周多 ' + diff + ' 题）' : (diff < 0 ? '（比上周少 ' + (-diff) + ' 题）' : '（与上周持平）'));
   var nick = state.profile.nick || '备考兔';
   var lines = [];
   lines.push('📕 上岸工作台 · 错题周报');
   lines.push(nick + '　' + fmtMD(cur.start) + ' – ' + fmtMD(cur.end));
   lines.push('');
-  lines.push(now.length ? ('本周新增 ' + now.length + ' 题' + trend) : '本周没有新增错题 🐰');
-  if(list.length){
-    lines.push('板块分布：' + list.map(function(x){ return x.cat + ' ' + x.n; }).join(' · '));
-    lines.push('薄弱点：' + list[0].cat + '（' + list[0].n + ' 题）');
-    lines.push('建议：' + adviceFor(list[0].cat));
+  lines.push(now.length ? ('本周新增 ' + now.length + ' 题（上周 ' + old.length + '，' + (an.trend > 0 ? '多 ' + an.trend : (an.trend < 0 ? '少 ' + (-an.trend) : '持平')) + '）') : '本周没有新增错题 🐰');
+  if(an.byCat.length) lines.push('板块：' + an.byCat.map(function(x){ return x.k + ' ' + x.n; }).join(' · '));
+  if(an.byType.length && an.byType[0].k !== '未标题型') lines.push('最集中的题型：' + an.byType.slice(0, 3).map(function(x){ return x.k + '×' + x.n; }).join('、'));
+  if(an.byReason.length && an.byReason[0].k !== '未标错因') lines.push('错因：' + an.byReason.map(function(x){ return x.k + '×' + x.n; }).join('、'));
+  if(an.advice.length){
+    lines.push('');
+    lines.push('💡 本周建议');
+    an.advice.slice(0, 3).forEach(function(a, i){ lines.push('  ' + (i + 1) + '. ' + a); });
   }
   lines.push('');
   lines.push('📊 本周学习：做题 ' + st.count + ' 道 · ' + st.min + ' 分钟 · 正确率 ' + (st.count ? Math.round(st.right / st.count * 100) + '%' : '—'));
-  lines.push('📕 错题本累计 ' + state.wrong.length + ' 题，未攻克 ' + state.wrong.filter(function(w){ return !w.mastered; }).length + ' 题');
+  lines.push('📕 累计 ' + state.wrong.length + ' 题，未攻克 ' + an.unmastered + ' 题，≥3 天待复做 ' + an.pending + ' 题');
   if(pending.length){
     lines.push('');
-    lines.push('🔁 到期待复做（≥3 天）：');
-    pending.forEach(function(w, i){
-      lines.push('  ' + (i + 1) + '. ' + w.title + '（' + w.cat + '，' + daysSince(w.date) + ' 天前）');
-    });
+    lines.push('🔁 优先复做：');
+    pending.forEach(function(w, i){ lines.push('  ' + (i + 1) + '. ' + w.title + '（' + w.cat + (w.type ? '·' + w.type : '') + '，' + daysSince(w.date) + ' 天前）'); });
   }
   lines.push('');
   lines.push('👉 回工作台继续：' + APP_URL);
@@ -2260,9 +2263,51 @@ function maybeAutoWeeklyPush(){
 
 function renderWrong(){
   var list = state.wrong.slice().sort(function(a, b){ return a.date < b.date ? 1 : -1; });
-  var ws = weeklySummary();
+  var an = analyzeWeek();
   var html = pageHead('📕', '错题本', '');
 
+  /* —— 本周分析 —— */
+  html += '<div class="card"><div class="card-head"><h2>🔬 本周错因分析</h2>' +
+    '<span class="tag">' + fmtMD(an.range.start) + '–' + fmtMD(an.range.end) + '</span>' +
+    '<span class="right tiny muted">本周 ' + an.total + ' 题' +
+    (an.prevTotal || an.total ? '（上周 ' + an.prevTotal + '）' : '') + '</span></div>';
+  if(!an.total){
+    html += '<div class="tiny muted">本周还没有新增错题。做题时点「收进错题本」，或者手动记一条，分析才有数据。</div>';
+  } else {
+    html += '<div class="grid c3 statgrid">' +
+      '<div class="stat"><div class="k">本周新增</div><div class="v">' + an.total + '<small>题</small></div></div>' +
+      '<div class="stat"><div class="k">较上周</div><div class="v" style="color:' + (an.trend > 0 ? '#ef7d6c' : '#3f9b78') + '">' + (an.trend > 0 ? '+' : '') + an.trend + '<small>题</small></div></div>' +
+      '<div class="stat"><div class="k">未攻克</div><div class="v">' + an.unmastered + '<small>题</small></div></div></div>';
+
+    if(an.byCat.length){
+      html += '<div style="margin-top:14px"><div class="tiny" style="font-weight:700;margin-bottom:6px">📚 板块分布</div>';
+      an.byCat.forEach(function(x){
+        var p = Math.round(x.n / an.total * 100);
+        html += '<div style="margin-bottom:7px"><div class="tiny" style="display:flex;justify-content:space-between"><span>' + esc(x.k) + '</span><span class="mini">' + x.n + ' 题 · ' + p + '%</span></div>' +
+          '<div class="bar thin" style="margin-top:3px"><i style="width:' + p + '%"></i></div></div>';
+      });
+      html += '</div>';
+    }
+    if(an.byType.length && an.byType[0].k !== '未标题型'){
+      html += '<div style="margin-top:12px"><div class="tiny" style="font-weight:700;margin-bottom:6px">🎯 错得最多的题型</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        an.byType.map(function(x){ return '<span class="cat-pill">' + esc(x.k) + ' × ' + x.n + '</span>'; }).join('') + '</div></div>';
+    }
+    if(an.byReason.length && an.byReason[0].k !== '未标错因'){
+      html += '<div style="margin-top:12px"><div class="tiny" style="font-weight:700;margin-bottom:6px">🧨 错因分布</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        an.byReason.map(function(x){ return '<span class="chip on" style="cursor:default">' + esc(x.k) + ' × ' + x.n + '</span>'; }).join('') + '</div></div>';
+    }
+    if(an.untyped){
+      html += '<div class="tiny" style="margin-top:10px;color:#a8811f">有 ' + an.untyped + ' 题还没选题型，补上以后分析会更准。</div>';
+    }
+    html += '<div style="margin-top:14px"><div class="tiny" style="font-weight:700;margin-bottom:6px">💡 本周学习建议</div>' +
+      an.advice.map(function(a){ return '<div class="item" style="margin-bottom:7px"><p class="tiny" style="margin:0;line-height:1.8">' + esc(a) + '</p></div>'; }).join('') +
+      '</div>';
+  }
+  html += '</div>';
+
+  /* —— 列表 —— */
   html += '<div class="card"><div class="card-head"><h2>📕 我的错题</h2><span class="tag">' + list.length + ' 题</span>' +
     '<span class="right">' +
     '<button class="btn sm' + (list.length ? ' primary' : '') + '" data-act="wrong-export"' + (list.length ? '' : ' disabled') + '>📤 导出</button>' +
@@ -2280,70 +2325,143 @@ function renderWrong(){
       html += '<div class="wrong-card' + (w.mastered ? ' mastered' : '') + '">' +
         '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
         '<b style="font-size:var(--fs-body)">' + esc(w.title) + '</b>' +
-        '<span class="cat-pill">' + esc(w.cat) + '</span><span class="mini">' + esc(w.date) + '</span>' +
+        (w.type ? '<span class="cat-pill" style="background:#f0f5e6;color:#7a9440">' + esc(w.type) + '</span>' : '<span class="cat-pill" style="background:#fff2ef;color:#c9604f">未选题型</span>') +
+        '<span class="mini">' + esc(w.date) + '</span>' +
         (w.mastered ? '<span class="cat-pill" style="background:#e8f8f1;color:#3f9b78">已攻克</span>' : '') + '</div>' +
+        ((w.reasons && w.reasons.length) ? '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">' +
+          w.reasons.map(function(r){ return '<span class="chip on" style="cursor:default;font-size:calc(var(--fs-sm) - 2px)">' + esc(r) + '</span>'; }).join('') + '</div>' : '') +
         (w.note ? '<div class="tiny" style="margin-top:6px">📝 ' + esc(w.note) + '</div>' : '') +
         (w.transcript ? '<div class="tiny muted" style="margin-top:4px">🎤 ' + esc(w.transcript) + '</div>' : '') +
         (w.images && w.images.length ? '<div class="wrong-imgs">' + w.images.map(function(src, i){
           return '<img src="' + src + '" data-act="img-view" data-i="' + i + '" data-id="' + w.id + '" alt="错题图片">';
         }).join('') + '</div>' : '') +
         '<div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap">' +
+        '<button class="btn sm" data-act="wrong-edit" data-id="' + w.id + '">✏️ 补题型/错因</button>' +
         '<button class="btn sm" data-act="wrong-master" data-id="' + w.id + '">' + (w.mastered ? '↩️ 取消攻克' : '✅ 标记已攻克') + '</button>' +
-        '<button class="btn sm ghost" data-act="wrong-del" data-id="' + w.id + '">🗑️ 删除</button></div>' +
-        '</div>';
+        '<button class="btn sm ghost" data-act="wrong-del" data-id="' + w.id + '">🗑️ 删除</button></div></div>';
     });
   }
   html += '</div>';
 
-  html += '<div class="card butter"><div class="card-head"><h2>🧾 本周错题汇总</h2><span class="tag warm">' +
-    (ws.end.getMonth()+1) + '/' + ws.end.getDate() + ' 前</span></div>';
-  if(!ws.total){
-    html += '<div class="tiny muted">本周还没有新增错题，继续保持 🐰</div>';
-  } else {
-    html += '<div class="tiny" style="line-height:1.9">本周新增 <b>' + ws.total + '</b> 题：' +
-      ws.list.map(function(x){ return esc(x.cat) + ' ' + x.n + ' 题'; }).join('、') + '</div>' +
-      '<div class="item" style="margin-top:10px"><h3>🔍 薄弱点</h3><p class="tiny">' +
-      esc(ws.list[0].cat) + ' 是本周错得最多的板块（' + ws.list[0].n + ' 题），建议优先补。</p>' +
-      '<p class="tiny" style="margin-top:6px">💡 ' + esc(adviceFor(ws.list[0].cat)) + '</p></div>' +
-      '<div class="tiny muted">复习建议：把本周错题在 3 天后、7 天后各重做一次，两遍都对的标"已攻克"。</div>';
-  }
-  html += '</div>';
-
-  var rep = buildWeekReport();
-  var rp = state.settings.report || {};
-  html += '<div class="card"><div class="card-head"><h2>📨 本周错题周报</h2><span class="tag mint">自动生成</span>' +
-    '<span class="right tiny muted">' + (rp.auto ? '自动：开' : '自动：关') + '</span></div>' +
-    '<div class="explain" style="white-space:pre-wrap;max-height:240px;overflow:auto;font-size:calc(var(--fs-sm) - .5px);line-height:1.8">' + esc(rep.text) + '</div>' +
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">' +
-    '<button class="btn sm primary" data-act="report-feishu">📤 推送到飞书</button>' +
-    '<button class="btn sm" data-act="report-copy">📋 复制</button>' +
-    '<button class="btn sm" data-act="report-mail">✉️ 邮件</button>' +
-    '<button class="btn sm ghost" data-act="report-toggle">' + (rp.auto ? '⏸ 关闭自动' : '▶️ 开启自动') + '</button></div>' +
-    '<div class="tiny muted" style="margin-top:9px;line-height:1.7">' +
-    (rp.webhook
-      ? ('飞书机器人已配置 · 上次推送：' + (rp.lastPush ? rp.lastPush.slice(0, 10) + ' ' + rp.lastPush.slice(11, 16) : '尚未推送') + '。开启自动后，每周首次打开工作台会自动发一次（每周最多一条）。')
-      : '还没配飞书机器人：⚙️ 设置 → 周报推送 → 粘贴飞书群机器人 webhook，配置后每周首次打开工作台自动推送。') +
-    '</div></div>';
+  html += '<div class="card butter"><div class="card-head"><h2>🧾 复做提醒</h2></div>' +
+    '<div class="tiny" style="line-height:1.9">到期待复做（≥3 天未攻克）：<b>' + an.pending + '</b> 题。' +
+    '建议把这批题在 3 天后、7 天后各重做一次，两遍都对的标"已攻克"，否则错因会一直重复。</div></div>';
   return html;
+}
+
+/* ================= 错题本：题型 / 错因 / 建议 ================= */
+const WRONG_TYPES = {
+  '政治理论':['时政热点','马哲原理','党史党建','重要会议·文件'],
+  '常识':['政治','法律','经济','科技','人文','地理国情','生活常识'],
+  '言语理解':['中心理解','细节判断','逻辑填空','语句排序','语句衔接','成语辨析'],
+  '逻辑判断':['翻译推理','真假推理','集合推理','加强论证','削弱论证','前提假设','图形推理','定义判断','类比推理','分析推理'],
+  '数量关系':['工程','行程','经济利润','浓度','排列组合','概率','年龄','植树','牛吃草','鸡兔同笼','容斥','几何','最值','等差数列'],
+  '资料分析':['基期·现期','增长量','增长率','比重','平均数','倍数','两期比例','综合判断'],
+  '申论小题':['归纳概括','提出对策','综合分析','贯彻执行','公文格式'],
+  '申论大作文':['立意','标题','开头','分论点','论证','结尾','语言']
+};
+const WRONG_REASONS = ['知识不会','方法不熟','计算失误','审题不清','看漏条件','时间不够','选项纠结','粗心马虎','蒙的'];
+const REASON_ADVICE = {
+  '知识不会':'回到技能卡/教材补这一个考点，当天做 5 道同类巩固，第二天不看笔记再做一遍。',
+  '方法不熟':'把这类题的固定步骤抄成一张卡，连续 10 道同类题只走这一套流程，别换方法。',
+  '计算失误':'每题写清算式再落笔；每天 10 分钟纯计算训练，错题旁标注"错在第几步"。',
+  '审题不清':'读题先圈问法（求率还是求量、选对还是选错），选完回看题干一遍再落笔。',
+  '看漏条件':'把条件逐条编号写在题号旁，做完核对"几条条件用到了"。',
+  '时间不够':'给这类题设时间上限（如资料单篇 6 分钟），到点就标放弃，练"敢跳"。',
+  '选项纠结':'把两个选项的差别写下来，回题干找哪一句支持它；只比差异不比整体。',
+  '粗心马虎':'最后 3 分钟专查：问法、单位、正负号、选项是否看串行。',
+  '蒙的':'这类题先补基础，别靠运气；统计里把"蒙对"单独记，别当成会了。'
+};
+const TYPE_ADVICE = {
+  '资料分析':'每天限时算 1–2 篇（6 分钟/篇），错题必须写出完整算式与截位过程。',
+  '数量关系':'按题型归堆，一个题型练到能默写公式与特值法，考场上同类直接套。',
+  '逻辑判断':'先翻译再判断：把条件写成 A⇒B；加强削弱回到"论点—论据"结构。',
+  '言语理解':'重点在"辨析点"：把易混词做成对照表，每天读 10 组。',
+  '常识':'按类别归堆（法律/科技/地理），一周只补一个方向，别撒网。',
+  '政治理论':'每天 15 分钟时政，把"考点"改写成一句话复述出来。',
+  '申论小题':'重做时先标材料行号，确保每条要点对应一处材料，练"不重不漏"。',
+  '申论大作文':'每个分论点强制配一个案例或数据，写不出案例说明这个分论点站不住。'
+};
+function typeOptions(cat, sel){
+  var list = WRONG_TYPES[cat] || [];
+  return list.map(function(t){
+    return '<option value="' + esc(t) + '"' + (t === sel ? ' selected' : '') + '>' + esc(t) + '</option>';
+  }).join('');
+}
+function analyzeWeek(){
+  var cur = weekBounds(0), prev = weekBounds(-1);
+  var now = wrongIn(cur), old = wrongIn(prev);
+  var byType = {}, byReason = {}, byCat = {}, cross = {};
+  now.forEach(function(w){
+    byCat[w.cat] = (byCat[w.cat] || 0) + 1;
+    var ty = w.type || '未标题型';
+    byType[ty] = (byType[ty] || 0) + 1;
+    (w.reasons && w.reasons.length ? w.reasons : ['未标错因']).forEach(function(r){
+      byReason[r] = (byReason[r] || 0) + 1;
+      var k = w.cat + '|' + r;
+      cross[k] = (cross[k] || 0) + 1;
+    });
+  });
+  function top(obj, n){
+    return Object.keys(obj).map(function(k){ return { k:k, n:obj[k] }; })
+      .sort(function(a, b){ return b.n - a.n; }).slice(0, n || 9);
+  }
+  var tTop = top(byType, 5), rTop = top(byReason, 3), cTop = top(byCat, 3), xTop = top(cross, 2);
+  var advice = [];
+  if(cTop.length && TYPE_ADVICE[cTop[0].k]) advice.push('【' + cTop[0].k + '】' + TYPE_ADVICE[cTop[0].k]);
+  if(rTop.length && REASON_ADVICE[rTop[0].k]) advice.push('【' + rTop[0].k + '】' + REASON_ADVICE[rTop[0].k]);
+  if(xTop.length){
+    var ck = xTop[0].k.split('|');
+    advice.push('【交叉】' + ck[0] + ' 的错里 ' + xTop[0].n + ' 题是"' + ck[1] + '"，本周先只改这一个动作。');
+  }
+  if(tTop.length && tTop[0].k !== '未标题型'){
+    advice.push('【题型】"' + tTop[0].k + '"错了 ' + tTop[0].n + ' 题，是本周最集中的类型，优先把它练到能复述步骤。');
+  }
+  var pending = state.wrong.filter(function(w){ return !w.mastered && daysSince(w.date) >= 3; });
+  return {
+    total:now.length, prevTotal:old.length, trend:now.length - old.length,
+    byType:tTop, byReason:rTop, byCat:cTop, cross:xTop,
+    advice:advice.slice(0, 4), pending:pending.length,
+    range:cur, untyped:now.filter(function(w){ return !w.type; }).length,
+    unmastered:state.wrong.filter(function(w){ return !w.mastered; }).length
+  };
 }
 
 /* 添加错题 */
 var tmpImgs = [];
-function openWrongAdd(cat, title){
-  tmpImgs = [];
-  var cats = PLAN_CATS.map(function(c){ return '<option value="' + esc(c.name) + '"' + (cat === c.name ? ' selected' : '') + '>' + c.icon + ' ' + esc(c.name) + '</option>'; }).join('');
+var tmpReasons = [];
+function openWrongAdd(cat, title, opts){
+  var o = opts || {};
+  var edit = o.id ? state.wrong.filter(function(x){ return x.id === o.id; })[0] : null;
+  tmpImgs = edit ? (edit.images || []).slice() : [];
+  tmpReasons = edit ? (edit.reasons || []).slice() : [];
+  var curCat = edit ? edit.cat : (cat || '资料分析');
+  var curType = edit ? (edit.type || '') : (o.type || '');
+  var cats = PLAN_CATS.map(function(c){
+    return '<option value="' + esc(c.name) + '"' + (curCat === c.name ? ' selected' : '') + '>' + c.icon + ' ' + esc(c.name) + '</option>';
+  }).join('');
+  var chips = WRONG_REASONS.map(function(r){
+    var on = tmpReasons.indexOf(r) >= 0;
+    return '<button type="button" class="chip' + (on ? ' on' : '') + '" data-act="reason-toggle" data-r="' + esc(r) + '">' + esc(r) + '</button>';
+  }).join('');
   openModal(
-    '<h3>📕 记一道错题</h3><div class="desc">自动记录今天日期，可按板块自动分组</div>' +
-    '<div class="field"><label>题目标题 / 要点</label><input class="inp" id="wTitle" maxlength="60" value="' + esc(title || '') + '" placeholder="例：资料分析-增长率与增长量混用"></div>' +
-    '<div class="field"><label>板块</label><select class="inp" id="wCat">' + cats + '</select></div>' +
-    '<div class="field"><label>个人备注（错因、正确思路）</label><textarea class="inp" id="wNote" placeholder="例：把增长率当增长量算了，公式应为 现期×r/(1+r)"></textarea></div>' +
+    '<h3>' + (edit ? '✏️ 修改错题' : '📕 记一道错题') + '</h3>' +
+    '<div class="desc">板块 → 题型 → 错因，三步填完，每周分析才准</div>' +
+    '<div class="field"><label>题目标题 / 要点</label><input class="inp" id="wTitle" maxlength="60" value="' + esc(edit ? edit.title : (title || '')) + '" placeholder="例：增长率与增长量混用"></div>' +
+    '<div class="field"><label>板块</label><select class="inp" id="wCat" data-act="wcat-change">' + cats + '</select></div>' +
+    '<div class="field"><label>题型 / 考点（二级归类）</label><select class="inp" id="wType">' +
+      '<option value="">（可不选）</option>' + typeOptions(curCat, curType) + '</select></div>' +
+    '<div class="field"><label>错因（可多选）</label><div id="wReasons" style="display:flex;gap:6px;flex-wrap:wrap">' + chips + '</div>' +
+    '<div class="tiny muted" style="margin-top:5px">选不准就选"蒙的"——周分析里会把它单独算一类</div></div>' +
+    '<div class="field"><label>个人备注（正确思路）</label><textarea class="inp" id="wNote" placeholder="例：公式应为 现期×r/(1+r)，我少除了 (1+r)">' + esc(edit ? (edit.note || '') : '') + '</textarea></div>' +
     '<div class="field"><label>语音转文字 <button class="btn sm" data-act="voice" data-target="wVoice" type="button">🎤 说一段</button></label>' +
-    '<textarea class="inp" id="wVoice" placeholder="点🎤说话，识别结果会填到这里（不支持的浏览器请直接打字）"></textarea></div>' +
-    '<div class="field"><label>题目图片（可多选，自动压缩保存）</label>' +
+    '<textarea class="inp" id="wVoice" placeholder="点🎤说话，识别结果填这里">' + esc(edit ? (edit.transcript || '') : '') + '</textarea></div>' +
+    '<div class="field"><label>题目图片（可多选，自动压缩）</label>' +
     '<input class="inp" type="file" id="wImgs" accept="image/*" multiple>' +
-    '<div id="wImgPrev" class="wrong-imgs" style="margin-top:8px"></div></div>' +
+    '<div id="wImgPrev" class="wrong-imgs" style="margin-top:8px">' +
+    (tmpImgs.length ? tmpImgs.map(function(s){ return '<img src="' + s + '" alt="预览">'; }).join('') : '') + '</div></div>' +
     '<div class="modal-actions"><button class="btn ghost" data-act="modal-close">取消</button>' +
-    '<button class="btn primary" data-act="wrong-save">保存错题</button></div>',
+    '<button class="btn primary" data-act="wrong-save" data-id="' + (edit ? edit.id : '') + '">' + (edit ? '保存修改' : '保存错题') + '</button></div>',
     function(box){
       var fi = $('#wImgs', box);
       fi.onchange = function(){
@@ -2368,7 +2486,7 @@ function openWrongAdd(cat, title){
 /* 导出文档 */
 function buildWrongDoc(){
   var nick = state.profile.nick || '备考兔';
-  var ws = weeklySummary();
+  var an = analyzeWeek();
   var groups = {};
   state.wrong.forEach(function(w){ (groups[w.cat] = groups[w.cat] || []).push(w); });
   var body = '';
@@ -2376,19 +2494,25 @@ function buildWrongDoc(){
     body += '<h2>' + (CAT_ICON[cat] || '') + ' ' + cat + '（' + groups[cat].length + '题）</h2>';
     groups[cat].forEach(function(w, i){
       body += '<div class="q"><p class="t">' + (i + 1) + '. ' + w.title + '</p>' +
-        '<p class="m">板块：' + w.cat + '　日期：' + w.date + '</p>' +
+        '<p class="m">题型：' + (w.type || '未标') + '　日期：' + w.date + '　状态：' + (w.mastered ? '已攻克' : '未攻克') + '</p>' +
+        ((w.reasons && w.reasons.length) ? '<p>错因：' + w.reasons.join('、') + '</p>' : '') +
         (w.note ? '<p>个人备注：' + w.note + '</p>' : '') +
         (w.transcript ? '<p>语音转文字：' + w.transcript + '</p>' : '') +
         (w.images && w.images.length ? w.images.map(function(s){ return '<p><img src="' + s + '" width="320"></p>'; }).join('') : '') +
         '</div>';
     });
   });
-  var weak = ws.list.length ? ws.list[0] : null;
-  var sum = '<h2>本周错题汇总</h2>' +
-    (ws.total ? '<p>本周新增错题 ' + ws.total + ' 题：' + ws.list.map(function(x){ return x.cat + ' ' + x.n + ' 题'; }).join('、') + '。</p>' +
-      '<p>薄弱点分析：' + weak.cat + ' 是本周最薄弱板块，共 ' + weak.n + ' 题。</p>' +
-      '<p>复习建议：' + adviceFor(weak.cat) + '</p>'
-      : '<p>本周暂无新增错题。</p>');
+  var sum = '<h2>本周错题汇总</h2>';
+  if(an.total){
+    sum += '<p>本周新增 ' + an.total + ' 题（上周 ' + an.prevTotal + ' 题）。</p>';
+    if(an.byCat.length) sum += '<p>板块分布：' + an.byCat.map(function(x){ return x.k + ' ' + x.n + ' 题'; }).join('、') + '。</p>';
+    if(an.byType.length && an.byType[0].k !== '未标题型') sum += '<p>最集中的题型：' + an.byType.map(function(x){ return x.k + '（' + x.n + '）'; }).join('、') + '。</p>';
+    if(an.byReason.length && an.byReason[0].k !== '未标错因') sum += '<p>错因分布：' + an.byReason.map(function(x){ return x.k + '（' + x.n + '）'; }).join('、') + '。</p>';
+    sum += '<p><b>学习建议：</b></p><ul>' + an.advice.map(function(a){ return '<li>' + a + '</li>'; }).join('') + '</ul>';
+    sum += '<p>待复做（≥3 天未攻克）：' + an.pending + ' 题。</p>';
+  } else {
+    sum += '<p>本周暂无新增错题。</p>';
+  }
   return '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8">' +
     '<title>错题本_' + todayStr() + '</title><style>' +
     'body{font-family:"PingFang SC","Microsoft YaHei",serif;color:#333;line-height:1.8;margin:36px}' +
@@ -2549,6 +2673,11 @@ document.addEventListener('change', function(e){
 });
 document.addEventListener('change', function(e){
   var t = e.target;
+  if(t && t.id === 'wCat'){
+    var wt = $('#wType');
+    if(wt) wt.innerHTML = '<option value="">（可不选）</option>' + typeOptions(t.value, '');
+    return;
+  }
   if(t && t.getAttribute && t.getAttribute('data-ai-field')){
     var af = t.getAttribute('data-ai-field');
     aiCfg()[af] = (t.value || '').trim();
@@ -2687,16 +2816,41 @@ document.addEventListener('click', function(e){
     return;
   }
   if(act === 'wrong-add'){ openWrongAdd('', ''); return; }
+  if(act === 'reason-toggle'){
+    var rr = t.getAttribute('data-r');
+    var k = tmpReasons.indexOf(rr);
+    if(k >= 0){ tmpReasons.splice(k, 1); t.classList.remove('on'); }
+    else { tmpReasons.push(rr); t.classList.add('on'); }
+    return;
+  }
+  if(act === 'wrong-edit'){
+    var wid2 = t.getAttribute('data-id');
+    openWrongAdd('', '', { id: wid2 });
+    return;
+  }
   if(act === 'wrong-save'){
     var ti = ($('#wTitle') || {}).value || '';
     if(!ti.trim()){ toast('请填写题目标题'); return; }
-    state.wrong.push({
-      id:uid(), title:ti.trim(), cat:($('#wCat') || {}).value || '常识', date:todayStr(),
+    var editId = t.getAttribute('data-id');
+    var payload = {
+      title:ti.trim(),
+      cat:($('#wCat') || {}).value || '常识',
+      type:($('#wType') || {}).value || '',
+      reasons:tmpReasons.slice(),
       note:(($('#wNote') || {}).value || '').trim(),
       transcript:(($('#wVoice') || {}).value || '').trim(),
-      images:tmpImgs.slice(), mastered:false
-    });
-    save(); closeModal(); route(); toast('已存入错题本 📕');
+      images:tmpImgs.slice()
+    };
+    if(editId){
+      var ex = state.wrong.filter(function(x){ return x.id === editId; })[0];
+      if(ex){ Object.keys(payload).forEach(function(k){ ex[k] = payload[k]; }); }
+      toast('已保存修改');
+    } else {
+      payload.id = uid(); payload.date = todayStr(); payload.mastered = false;
+      state.wrong.push(payload);
+      toast('已存入错题本 📕');
+    }
+    save(); closeModal(); route();
     return;
   }
   if(act === 'voice'){ startVoice(t.getAttribute('data-target')); return; }
