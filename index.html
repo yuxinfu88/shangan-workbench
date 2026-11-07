@@ -1662,7 +1662,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-07 · 23:20';
+var APP_BUILD = '2026-11-07 · 23:28';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -1963,7 +1963,7 @@ function openSettings(){
     '<button class="btn sm" data-act="gh-eye" style="flex:0 0 auto">👁</button></div>' +
     '<div class="tiny muted" style="margin-top:5px">生成：GitHub → Settings → Developer settings → Personal access tokens → <b>Tokens (classic)</b> → Generate new token → 只勾 <b>gist</b> → 复制粘贴到这里。只存本机，可随时在 GitHub 撤销。</div>' +
     '<div class="tiny muted" style="margin-top:6px">' + ((state.settings.gh || {}).gistId
-      ? ('已绑定 Gist：' + esc(state.settings.gh.gistId) + ' · 上次同步 ' + esc(((state.settings.gh.lastSync || '').slice(5, 16) || '—').replace('T', ' ')))
+      ? ('已绑定 Gist：' + esc(state.settings.gh.gistId.slice(0, 4) + '…' + state.settings.gh.gistId.slice(-4)) + ' · 上次同步 ' + esc(((state.settings.gh.lastSync || '').slice(5, 16) || '—').replace('T', ' ')) + '<br>Gist ID 只显示头尾：GitHub 的私密 Gist 拿到完整 ID 就能匿名读取，别截图外传')
       : '还没上传过：填好 token 点「上传」，会自动建一个私密 Gist') + '</div>' +
     '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">' +
     '<button class="btn sm primary" data-act="gh-push">⬆️ 上传</button>' +
