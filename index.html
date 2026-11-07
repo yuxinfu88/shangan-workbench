@@ -1383,7 +1383,9 @@ function importSkillFiles(files){
   function doneAll(){
     teacherCache = null;
     renderTeacherList();
-    toast('导入完成：' + (added || arr.length) + ' 个文件');
+    idbGet('skillindex').then(function(l){
+      toast('已处理 ' + arr.length + ' 个文件，技能库共 ' + ((l || []).length) + ' 位老师');
+    }).catch(function(){ toast('导入完成'); });
   }
   function next(){
     if(i >= arr.length){ doneAll(); return; }
