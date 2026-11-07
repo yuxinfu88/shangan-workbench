@@ -803,6 +803,9 @@ const DEF_STATE = {
   wrong:[],
   quizLog:{},
   skillsDone:{},
+  mySkills:[],
+  skillEdit:{},
+  skillDel:[],
   redoLog:[],
   _skillsVer:1,
   archiveOffset:0,
@@ -1480,37 +1483,90 @@ function previewTeacherSkill(id){
   });
 }
 
+/* 内置卡 + 本机改动 = 生效的技能卡 */
+function skillList(){
+  var del = state.skillDel || [], edit = state.skillEdit || {};
+  var base = SKILLS.filter(function(s){ return del.indexOf(s.id) < 0; }).map(function(s){
+    var o = edit[s.id] || {};
+    return {
+      id:s.id, builtin:true,
+      cat:o.cat || s.cat, icon:o.icon || s.icon, title:o.title || s.title,
+      when:o.when || s.when, steps:(o.steps && o.steps.length ? o.steps : s.steps),
+      time:o.time || s.time, trap:o.trap || s.trap, mantra:o.mantra || s.mantra
+    };
+  });
+  var mine = (state.mySkills || []).map(function(s){ s.builtin = false; return s; });
+  return base.concat(mine);
+}
+function openSkillEditor(id){
+  var list = skillList();
+  var cur = id ? list.filter(function(s){ return s.id === id; })[0] : null;
+  var isNew = !cur;
+  var cats = [];
+  list.forEach(function(s){ if(cats.indexOf(s.cat) < 0) cats.push(s.cat); });
+  openModal(
+    '<h3>' + (isNew ? '➕ 新建技能卡' : '✏️ 编辑技能卡') + '</h3>' +
+    '<div class="desc">改完只存在你这台设备；内置卡可以"恢复默认"</div>' +
+    '<div class="inp-row"><div class="field"><label>标题</label><input class="inp" id="skTitle" maxlength="30" value="' + esc(cur ? cur.title : '') + '" placeholder="例：资料分析先看问法"></div>' +
+    '<div class="field" style="max-width:90px"><label>图标</label><input class="inp" id="skIcon" maxlength="4" value="' + esc(cur ? cur.icon : '📌') + '"></div></div>' +
+    '<div class="field"><label>所属板块</label><input class="inp" id="skCat" maxlength="14" list="skCats" value="' + esc(cur ? cur.cat : '') + '" placeholder="例：资料分析">' +
+    '<datalist id="skCats">' + cats.map(function(c){ return '<option value="' + esc(c) + '">'; }).join('') + '</datalist></div>' +
+    '<div class="field"><label>什么时候用</label><input class="inp" id="skWhen" maxlength="60" value="' + esc(cur ? cur.when : '') + '" placeholder="例：拿到一道资料分析题"></div>' +
+    '<div class="field"><label>步骤（一行一步）</label><textarea class="inp" id="skSteps" style="min-height:110px" placeholder="先看问法&#10;再回材料找数&#10;选项差距大就截位">' + esc(cur ? cur.steps.join('\n') : '') + '</textarea></div>' +
+    '<div class="inp-row"><div class="field"><label>时间预算</label><input class="inp" id="skTime" maxlength="20" value="' + esc(cur ? cur.time : '') + '" placeholder="例：40 秒/题"></div></div>' +
+    '<div class="field"><label>常见坑</label><textarea class="inp" id="skTrap" style="min-height:64px">' + esc(cur ? cur.trap : '') + '</textarea></div>' +
+    '<div class="field"><label>一句话口诀</label><input class="inp" id="skMantra" maxlength="40" value="' + esc(cur ? cur.mantra : '') + '"></div>' +
+    '<div class="modal-actions">' +
+    (isNew ? '' : '<button class="btn sm coral" data-act="skill-del" data-id="' + esc(id) + '">🗑 删除这张</button>') +
+    (isNew || !cur || !cur.builtin ? '' : '<button class="btn sm ghost" data-act="skill-reset-one" data-id="' + esc(id) + '">↩️ 恢复默认</button>') +
+    '<button class="btn ghost" data-act="modal-close">取消</button>' +
+    '<button class="btn primary" data-act="skill-save" data-id="' + esc(id || '') + '">保存</button></div>'
+  );
+}
+
 function renderSkills(){
   var done = state.skillsDone || {};
+  var list = skillList();
   var html = pageHead('🎓', '老师技能库', '');
   html += skillsLibraryHTML();
-  html += '<div class="card-head" style="margin:18px 0 10px"><h2>🧭 通用方法卡（内置 8 张）</h2><span class="tag mint">不依赖导入</span></div>';
+  html += '<div class="card-head" style="margin:18px 0 10px"><h2>🧭 通用方法卡</h2>' +
+    '<span class="tag mint">' + list.length + ' 张 · 可改</span>' +
+    '<span class="right"><button class="btn sm" data-act="skill-new">＋ 新建</button>' +
+    ((state.skillEdit && Object.keys(state.skillEdit).length) || (state.skillDel || []).length || (state.mySkills || []).length
+      ? '<button class="btn sm ghost" data-act="skill-reset-all">↩️ 全部恢复默认</button>' : '') +
+    '</span></div>';
   var cats = [], seen = {};
-  SKILLS.forEach(function(s){ if(!seen[s.cat]){ seen[s.cat] = 1; cats.push(s.cat); } });
-  var total = SKILLS.length, ok = SKILLS.filter(function(s){ return done[s.id]; }).length;
+  list.forEach(function(s){ if(!seen[s.cat]){ seen[s.cat] = 1; cats.push(s.cat); } });
+  var total = list.length, ok = list.filter(function(s){ return done[s.id]; }).length;
   html += '<div class="card"><div class="card-head"><h2>🎯 掌握进度</h2><span class="tag">' + ok + ' / ' + total + '</span>' +
-    '<span class="right"><span class="pct">' + Math.round(ok / total * 100) + '%</span></span></div>' +
-    '<div class="bar lg"><i style="width:' + Math.round(ok / total * 100) + '%"></i></div>' +
-    '<div class="tiny muted" style="margin-top:8px">这些是"方法"不是"知识"：能不看卡片复述出来，再勾已掌握。卡住了点右下角 🤖 问老师。</div></div>';
+    '<span class="right"><span class="pct">' + Math.round(ok / Math.max(total, 1) * 100) + '%</span></span></div>' +
+    '<div class="bar lg"><i style="width:' + Math.round(ok / Math.max(total, 1) * 100) + '%"></i></div>' +
+    '<div class="tiny muted" style="margin-top:8px">这些是你的"方法"：可以按自己的话改（点卡片右下 ✏️），改完只存本机。能不看卡片复述出来，再勾已掌握。</div></div>';
 
   cats.forEach(function(cat){
-    html += '<div class="card"><div class="card-head"><h2>' + (SKILLS.filter(function(s){return s.cat===cat;})[0] || {}).icon + ' ' + esc(cat) + '</h2>' +
-            '<span class="tag mint">' + SKILLS.filter(function(s){return s.cat===cat;}).length + ' 张</span></div>';
-    SKILLS.filter(function(s){ return s.cat === cat; }).forEach(function(s){
+    var group = list.filter(function(s){ return s.cat === cat; });
+    html += '<div class="card"><div class="card-head"><h2>' + (group[0] || {}).icon + ' ' + esc(cat) + '</h2>' +
+            '<span class="tag mint">' + group.length + ' 张</span></div>';
+    group.forEach(function(s){
       var d = !!done[s.id];
       html += '<div class="skill' + (d ? ' done' : '') + '">' +
-        '<h3>' + s.icon + ' ' + esc(s.title) + '<span class="time">⏱ ' + esc(s.time) + '</span></h3>' +
+        '<h3>' + s.icon + ' ' + esc(s.title) + '<span class="time">⏱ ' + esc(s.time) + '</span>' +
+        (s.builtin ? '' : '<span class="mini" style="color:#3f9b78">自定义</span>') + '</h3>' +
         '<div class="when">🎯 什么时候用：' + esc(s.when) + '</div>' +
-        '<ol>' + s.steps.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>' +
-        '<div class="trap">⚠️ 常见坑：' + esc(s.trap) + '</div>' +
-        '<div class="mantra">口诀：' + esc(s.mantra) + '</div>' +
+        '<ol>' + (s.steps || []).map(function(x){ return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>' +
+        (s.trap ? '<div class="trap">⚠️ 常见坑：' + esc(s.trap) + '</div>' : '') +
+        (s.mantra ? '<div class="mantra">口诀：' + esc(s.mantra) + '</div>' : '') +
         '<div class="foot"><button class="btn sm' + (d ? '' : ' primary') + '" data-act="skill-toggle" data-id="' + s.id + '">' +
           (d ? '↩️ 取消已掌握' : '✅ 我已掌握') + '</button>' +
+        '<button class="btn sm ghost" data-act="skill-edit" data-id="' + s.id + '">✏️ 改</button>' +
         '<button class="btn sm ghost" data-act="ai-ask-skill" data-id="' + s.id + '">🤖 问问老师</button></div>' +
       '</div>';
     });
     html += '</div>';
   });
+  if(!cats.length){
+    html += '<div class="card"><div class="empty"><span class="big">🗒️</span>一张卡都没有了<br><span class="tiny">点「＋ 新建」自己写，或「全部恢复默认」</span></div></div>';
+  }
   return html;
 }
 
@@ -2233,7 +2289,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 02:55';
+var APP_BUILD = '2026-11-08 · 03:10';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -3212,6 +3268,62 @@ document.addEventListener('click', function(e){
     }).catch(function(){ toast('移除失败'); });
     return;
   }
+  if(act === 'skill-new'){ openSkillEditor(''); return; }
+  if(act === 'skill-edit'){ openSkillEditor(t.getAttribute('data-id')); return; }
+  if(act === 'skill-save'){
+    var sid = t.getAttribute('data-id');
+    var val = {
+      title:($('#skTitle') || {}).value || '',
+      icon:(($('#skIcon') || {}).value || '📌').slice(0, 3),
+      cat:(($('#skCat') || {}).value || '未分类').trim(),
+      when:(($('#skWhen') || {}).value || '').trim(),
+      steps:(($('#skSteps') || {}).value || '').split('\n').map(function(x){ return x.trim(); }).filter(Boolean),
+      time:(($('#skTime') || {}).value || '').trim(),
+      trap:(($('#skTrap') || {}).value || '').trim(),
+      mantra:(($('#skMantra') || {}).value || '').trim()
+    };
+    if(!val.title){ toast('标题不能空'); return; }
+    if(!val.steps.length){ toast('至少写一步'); return; }
+    if(sid && sid.indexOf('u_') === 0){
+      state.mySkills = state.mySkills || [];
+      var mine = state.mySkills.filter(function(x){ return x.id === sid; })[0];
+      if(mine){ Object.keys(val).forEach(function(k){ mine[k] = val[k]; }); }
+    } else if(sid){
+      state.skillEdit = state.skillEdit || {};
+      state.skillEdit[sid] = val;
+    } else {
+      state.mySkills = state.mySkills || [];
+      val.id = 'u_' + uid();
+      state.mySkills.push(val);
+    }
+    saveNow(); closeModal(); route(); toast('已保存');
+    return;
+  }
+  if(act === 'skill-del'){
+    var did = t.getAttribute('data-id');
+    if(!confirm('删除这张卡？内置卡可以「全部恢复默认」找回。')) return;
+    if(did.indexOf('u_') === 0){
+      state.mySkills = (state.mySkills || []).filter(function(x){ return x.id !== did; });
+    } else {
+      state.skillDel = state.skillDel || [];
+      if(state.skillDel.indexOf(did) < 0) state.skillDel.push(did);
+      if(state.skillEdit && state.skillEdit[did]) delete state.skillEdit[did];
+    }
+    saveNow(); closeModal(); route(); toast('已删除');
+    return;
+  }
+  if(act === 'skill-reset-one'){
+    var rid = t.getAttribute('data-id');
+    if(state.skillEdit && state.skillEdit[rid]) delete state.skillEdit[rid];
+    saveNow(); closeModal(); route(); toast('已恢复这张的内置内容');
+    return;
+  }
+  if(act === 'skill-reset-all'){
+    if(!confirm('把所有卡片恢复成内置版本（删掉你的改动和自建卡）？')) return;
+    state.skillEdit = {}; state.skillDel = []; state.mySkills = [];
+    saveNow(); route(); toast('已全部恢复默认');
+    return;
+  }
   if(act === 'skill-toggle'){
     var sid = t.getAttribute('data-id');
     state.skillsDone = state.skillsDone || {};
@@ -3220,7 +3332,7 @@ document.addEventListener('click', function(e){
     return;
   }
   if(act === 'ai-ask-skill'){
-    var sk = SKILLS.filter(function(x){ return x.id === t.getAttribute('data-id'); })[0];
+    var sk = skillList().filter(function(x){ return x.id === t.getAttribute('data-id'); })[0];
     if(!sk) return;
     openTeacher('请按你的讲法，把「' + sk.title + '」这套方法再讲一遍，并给一个反例说明它什么时候不适用。');
     return;
@@ -3508,6 +3620,17 @@ function mergeStates(local, remote){
   // 做题记录：并集
   out.quizLog = Object.assign({}, older.quizLog || {}, newer.quizLog || {});
   out.skillsDone = Object.assign({}, older.skillsDone || {}, newer.skillsDone || {});
+  out.skillEdit = Object.assign({}, older.skillEdit || {}, newer.skillEdit || {});
+  var delSet = {};
+  (older.skillDel || []).concat(newer.skillDel || []).forEach(function(k){ delSet[k] = 1; });
+  out.skillDel = Object.keys(delSet);
+  var mined = {}, mineOrder = [];
+  (older.mySkills || []).concat(newer.mySkills || []).forEach(function(s){
+    if(!s || !s.id) return;
+    if(!mined[s.id]){ mineOrder.push(s.id); }
+    mined[s.id] = s;
+  });
+  out.mySkills = mineOrder.map(function(k){ return mined[k]; });
 
   // 轮换偏移：取较大值，避免内容跳来跳去
   out.archiveOffset = Math.max(older.archiveOffset || 0, newer.archiveOffset || 0);
