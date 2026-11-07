@@ -904,7 +904,7 @@ function persist(){
   }catch(e){}
   try{
     var gh0 = state.settings.gh || {};
-    if(gh0.auto && gh0.token && gh0.gistId) ghSchedulePush();
+    if(gh0.auto && gh0.token && gh0.gistId) syncDirty = true;
   }catch(e){}
 }
 function save(){
@@ -1036,9 +1036,15 @@ function updateSyncPill(){
   var g = state.settings.gh || {};
   var pill = $('#syncPill'), txt = $('#syncText');
   if(g.token && g.gistId){
+    if(g.lastError){
+      pill.classList.add('local'); pill.classList.remove('online');
+      txt.textContent = '⚠️ 同步异常';
+      pill.title = g.lastError;
+      return;
+    }
     pill.classList.add('online'); pill.classList.remove('local');
-    txt.textContent = '☁️ Gist 同步 ' + (g.lastSync ? fmtLocalTime(g.lastSync) : '· 待同步');
-    pill.title = '数据已同步到你的私密 GitHub Gist';
+    txt.textContent = g.lastSync ? '☁️ 已同步' : '☁️ 待同步';
+    pill.title = '每 10 分钟自动同步一次' + (g.lastSync ? '　上次：' + fmtLocalTime(g.lastSync) : '');
     return;
   }
   if(s.connected && s.url){
@@ -2289,7 +2295,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 03:40';
+var APP_BUILD = '2026-11-08 · 03:55';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -2754,7 +2760,9 @@ function openSettings(){
     '<div class="tiny muted" style="margin-top:5px">生成：GitHub → Settings → Developer settings → Personal access tokens → <b>Tokens (classic)</b> → Generate new token → 只勾 <b>gist</b> → 复制粘贴到这里。只存本机，可随时在 GitHub 撤销。</div>' +
     '<div class="tiny muted" style="margin-top:6px">' + ((state.settings.gh || {}).gistId
       ? ('已绑定 Gist：' + esc(state.settings.gh.gistId.slice(0, 4) + '…' + state.settings.gh.gistId.slice(-4)) + ' · 上次同步 ' + esc(fmtLocalTime(state.settings.gh.lastSync) || '—') + '（本地时间）' + '<br>Gist ID 只显示头尾：GitHub 的私密 Gist 拿到完整 ID 就能匿名读取，别截图外传')
-      : '还没上传过：填好 token 点「上传」，会自动建一个私密 Gist') + '</div>' +
+      : '还没上传过：填好 token 点「上传」，会自动建一个私密 Gist') +
+    '<div class="tiny muted" style="margin-top:4px">节奏：每 10 分钟自动同步一次，不在界面弹提示' +
+    ((state.settings.gh || {}).lastError ? '；<span style="color:#c9604f">最近一次错误：' + esc(state.settings.gh.lastError) + '</span>' : '') + '</div>' +
     '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">' +
     '<button class="btn sm primary" data-act="gh-push">⬆️ 上传</button>' +
     '<button class="btn sm" data-act="gh-pull">⬇️ 同步/合并</button>' +
@@ -3554,7 +3562,7 @@ function checkRemoteNewer(){
 }
 
 /* ========== 云同步：GitHub Gist（跨域可用，实测 api.github.com 允许 CORS） ========== */
-var ghTimer = null, GH_FILE = 'shangan-backup.json';
+var ghTimer = null, syncDirty = false, GH_FILE = 'shangan-backup.json';
 function ghCfg(){ if(!state.settings.gh) state.settings.gh = { token:'', gistId:'', auto:false, lastSync:'' }; return state.settings.gh; }
 function ghHeaders(extra){
   var h = { 'Authorization':'Bearer ' + ghCfg().token, 'Accept':'application/vnd.github+json', 'X-GitHub-Api-Version':'2022-11-28' };
@@ -3566,10 +3574,9 @@ function ghJson(r){
   if(!r.ok) throw new Error('GitHub 返回 ' + r.status);
   return r.json();
 }
-function ghSchedulePush(){
-  clearTimeout(ghTimer);
-  ghTimer = setTimeout(function(){ ghPush(null, true); }, 5000);
-}
+/* 自动同步节奏：每 10 分钟一次（有改动就合并上传，没改动就静默拉取） */
+var SYNC_EVERY_MS = 10 * 60 * 1000;
+function ghSchedulePush(){ syncDirty = true; }
 /* 合并两份数据：集合取并集，标量设置取"更新"的一方；昵称/座右铭/头像按 profile.updatedAt 定胜负 */
 function mergeStates(local, remote){
   if(!remote) return clone(local);
@@ -3665,12 +3672,17 @@ function ghSyncNow(silent){
         state = merged;
         saveNow(); applySettings(); renderProfile(); route();
         if(!silent) toast('☁️ 已合并云端改动');
-        else toast('☁️ 已同步到另一台设备的改动');
       } else if(!silent){
         toast('已是最新');
       }
+      g.lastError = '';
+      save(); updateSyncPill();
     })
-    .catch(function(e){ if(!silent) toast('读取失败：' + e.message); });
+    .catch(function(e){
+      g.lastError = (e && e.message) ? String(e.message).slice(0, 40) : '读取失败';
+      save(); updateSyncPill();
+      if(!silent) toast('读取失败：' + e.message);
+    });
 }
 function ghPush(text, silent){
   var g = ghCfg();
@@ -3693,13 +3705,18 @@ function ghPush(text, silent){
       .then(function(j){
         g.gistId = j.id;
         g.lastSync = new Date().toISOString();
+        g.lastError = '';
         g.auto = true;
+        syncDirty = false;
         state.settings.lastBackupTs = Date.now();
         save(); updateSyncPill(); route();
         if(!silent) toast('☁️ 已同步（含合并另一台设备的改动）');
-        else toast('☁️ 已自动同步');
       })
-      .catch(function(e){ if(!silent) toast('同步失败：' + e.message); });
+      .catch(function(e){
+        g.lastError = (e && e.message) ? String(e.message).slice(0, 40) : '同步失败';
+        save(); updateSyncPill();
+        if(!silent) toast('同步失败：' + e.message);
+      });
   };
   if(g.gistId){
     fetch('https://api.github.com/gists/' + g.gistId, { headers: ghHeaders() })
@@ -3872,12 +3889,12 @@ window.addEventListener('hashchange', route);
 function autoSyncTick(){
   try{
     var g = state.settings.gh || {};
-    if(g.token && g.gistId && !document.hidden) ghSyncNow(true);
+    if(!g.token || !g.gistId || document.hidden) return;
+    if(syncDirty) ghPush(null, true);   // 有改动：先合并再上传
+    else ghSyncNow(true);               // 没改动：静默拉取
   }catch(e){}
 }
-document.addEventListener('visibilitychange', function(){ if(!document.hidden) setTimeout(autoSyncTick, 800); });
-window.addEventListener('focus', function(){ setTimeout(autoSyncTick, 800); });
-setInterval(autoSyncTick, 60000);
+setInterval(autoSyncTick, SYNC_EVERY_MS);
 
 /* ================= 启动 ================= */
 function boot(){
