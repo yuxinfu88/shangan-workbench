@@ -779,19 +779,96 @@ var state = (function(){
   }catch(e){ return clone(DEF_STATE); }
 })();
 
-var saveTimer = null, saveWarned = false;
+var saveTimer = null, saveWarned = false, snapDone = '';
+
+/* ---------- IndexedDB 备份库（抗 localStorage 被清/损坏） ---------- */
+var IDB_NAME = 'shangan_backup_v1';
+function idbOpen(){
+  return new Promise(function(res, rej){
+    if(!window.indexedDB) return rej(new Error('no idb'));
+    var req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = function(){ var db = req.result; if(!db.objectStoreNames.contains('kv')) db.createObjectStore('kv'); };
+    req.onsuccess = function(){ res(req.result); };
+    req.onerror = function(){ rej(req.error); };
+  });
+}
+function idbPut(k, v){
+  return idbOpen().then(function(db){
+    return new Promise(function(res, rej){
+      var tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put(v, k);
+      tx.oncomplete = function(){ res(true); };
+      tx.onerror = function(){ rej(tx.error); };
+    });
+  });
+}
+function idbGet(k){
+  return idbOpen().then(function(db){
+    return new Promise(function(res, rej){
+      var tx = db.transaction('kv', 'readonly');
+      var rq = tx.objectStore('kv').get(k);
+      rq.onsuccess = function(){ res(rq.result); };
+      rq.onerror = function(){ rej(rq.error); };
+    });
+  });
+}
+function idbDel(k){
+  return idbOpen().then(function(db){
+    return new Promise(function(res){
+      var tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').delete(k);
+      tx.oncomplete = function(){ res(true); };
+      tx.onerror = function(){ res(false); };
+    });
+  });
+}
+
+function idbClearAll(){
+  return idbOpen().then(function(db){
+    return new Promise(function(res){
+      var tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').clear();
+      tx.oncomplete = function(){ res(true); };
+      tx.onerror = function(){ res(false); };
+    });
+  }).catch(function(){ return false; });
+}
+
+/* 写盘：localStorage（快）+ IndexedDB（稳）+ 每日快照 + 自动云同步 */
+function persist(){
+  state.updatedAt = Date.now();
+  var json;
+  try{ json = JSON.stringify(state); }catch(e){ return; }
+  try{ localStorage.setItem(LS_KEY, json); }
+  catch(e){
+    if(!saveWarned){ saveWarned = true; toast('⚠️ 浏览器存储空间不足，先删几张错题图片'); }
+  }
+  try{ idbPut('state', { ts:Date.now(), json:json }).catch(function(){}); }catch(e){}
+  try{ snapshotDaily(json); }catch(e){}
+  try{
+    if(state.settings.sync && state.settings.sync.auto && state.settings.sync.url) scheduleAutoSync();
+  }catch(e){}
+}
 function save(){
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(function(){
-    try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
-    catch(e){
-      if(!saveWarned){ saveWarned = true; toast('⚠️ 存储空间不足，图片可删除一些再试'); }
-    }
-  }, 180);
+  saveTimer = setTimeout(persist, 180);
 }
 function saveNow(){
   clearTimeout(saveTimer);
-  try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
+  persist();
+}
+/* 每天留一份快照，滚动保留 10 份 */
+function snapshotDaily(json){
+  var d = todayStr();
+  if(snapDone === d) return;
+  snapDone = d;
+  idbGet('snapindex').then(function(list){
+    list = list || [];
+    if(list.indexOf(d) === -1) list.push(d);
+    idbPut('snap:' + d, { date:d, ts:Date.now(), json:json, wrong:(state.wrong || []).length, plans:Object.keys(state.plans || {}).length, size:json.length });
+    while(list.length > 10){ idbDel('snap:' + list.shift()); }
+    return idbPut('snapindex', list);
+  }).catch(function(){});
 }
 document.addEventListener('visibilitychange', function(){ if(document.hidden) saveNow(); });
 window.addEventListener('beforeunload', saveNow);
@@ -890,6 +967,12 @@ function applySettings(){
   updateSyncPill();
 }
 
+function backupAgeText(){
+  var t = state.settings.lastBackupTs || 0;
+  if(!t) return '还没有过成功备份（导出或云同步）；纯本地也能用，但浏览器被清理时会丢。';
+  var d = Math.floor((Date.now() - t) / 86400000);
+  return d <= 0 ? '上次备份：今天' : ('上次备份：' + d + ' 天前' + (d >= 30 ? '（建议导出一份）' : ''));
+}
 function updateSyncPill(){
   var s = state.settings.sync || {};
   var pill = $('#syncPill'), txt = $('#syncText');
@@ -898,7 +981,9 @@ function updateSyncPill(){
     txt.textContent = '☁️ 已连接 ' + (s.lastSync ? s.lastSync.slice(5, 16) : '· 待同步');
   } else {
     pill.classList.add('local'); pill.classList.remove('online');
-    txt.textContent = '💾 本地 · 未连接';
+    var stale = !state.settings.lastBackupTs || (Date.now() - state.settings.lastBackupTs) > 30 * 86400000;
+    txt.textContent = stale ? '💾 本地 · 待备份' : '💾 本地 · 未连接';
+    pill.title = stale ? '超过 30 天没有导出或云备份，建议 ⚙️ 设置里导出一次' : '数据只在这台设备的浏览器里';
   }
 }
 
@@ -1861,6 +1946,18 @@ function openSettings(){
     '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">' +
     '<button class="btn sm" data-act="report-test">🚀 发一条测试消息</button>' +
     '<button class="btn sm" data-act="report-autotoggle">' + ((state.settings.report || {}).auto ? '⏸ 关闭自动周报' : '▶️ 开启自动周报') + '</button></div></div>' +
+    '<div class="field"><label>🛟 数据安全（防丢）</label>' +
+    '<div class="tiny" style="line-height:1.8;background:#f6f9fd;border:1px solid #dbe8f5;border-radius:14px;padding:9px 11px;margin-bottom:8px">' +
+    '· 每次改动同时写 localStorage 与浏览器备份库（IndexedDB），一边坏了另一边还在；<br>' +
+    '· 每天首次保存自动留一份快照，保留 10 天，可一键回到任意一天；<br>' +
+    '· 浏览器数据被清空后打开，会<b>自动</b>从备份库恢复；<br>' +
+    '· 填了 WebDAV 并开启自动同步，改完 5 秒就传一份到你自己的网盘（真正的异地副本）。</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">' +
+    '<button class="btn sm' + ((state.settings.sync || {}).auto ? ' primary' : '') + '" data-act="autosync-toggle">' +
+    ((state.settings.sync || {}).auto ? '☁️ 自动同步：已开' : '☁️ 自动同步：关') + '</button>' +
+    '<button class="btn sm" data-act="snap-refresh">🔄 刷新快照</button></div>' +
+    '<div class="tiny muted" style="margin-bottom:6px">' + backupAgeText() + '</div>' +
+    '<div id="snapList"><div class="tiny muted">读取快照中…</div></div></div>' +
     '<div class="field"><label style="color:#c9604f">危险操作</label>' +
     '<button class="btn sm coral" data-act="data-clear">🗑️ 清空全部数据</button></div>' +
     '<div class="modal-actions"><button class="btn primary" data-act="modal-close">完成</button></div>' +
@@ -1871,7 +1968,8 @@ function openSettings(){
     '· 唯一会上传数据的出口是「云同步」和「推送到飞书」，两者都由你手动填地址；<br>' +
     '· 导出的备份默认不含密码和 webhook；<br>' +
     '· 手机/电脑各自独立，换设备用「导出/导入」搬。</div></div>' +
-    '<div class="tiny muted" style="margin-top:10px;line-height:1.7">上岸工作台 · 单文件离线版<br>时政数据包更新于 ' + NEWS_PACK_DATE + '，其余题目为每日轮换的本地题库。</div>'
+    '<div class="tiny muted" style="margin-top:10px;line-height:1.7">上岸工作台 · 单文件离线版<br>时政数据包更新于 ' + NEWS_PACK_DATE + '，其余题目为每日轮换的本地题库。</div>',
+    function(){ loadSnapList(); }
   );
 }
 
@@ -2090,6 +2188,7 @@ document.addEventListener('click', function(e){
     var withSecrets = ($('#expSecrets') || {}).checked;
     var payload = exportPayload(withSecrets);
     var ok2 = downloadBlob(JSON.stringify(payload, null, 2), '上岸工作台备份_' + todayStr() + '.json', 'application/json');
+    if(ok2){ state.settings.lastBackupTs = Date.now(); save(); updateSyncPill(); }
     closeModal();
     toast(ok2 ? (withSecrets ? '已导出（含密钥，请妥善保管）' : '已导出（不含密钥）') : '导出失败，请重试');
     return;
@@ -2113,10 +2212,51 @@ document.addEventListener('click', function(e){
     return;
   }
   if(act === 'data-clear'){
-    if(!confirm('确定清空全部数据？此操作不可撤销，建议先导出备份。')) return;
+    if(!confirm('确定清空全部数据（含本地备份库与快照）？此操作不可撤销，建议先导出备份。')) return;
     try{ localStorage.removeItem(LS_KEY); }catch(e){}
     state = clone(DEF_STATE);
-    saveNow(); renderProfile(); applySettings(); route(); closeModal(); toast('已清空');
+    idbClearAll().then(function(){
+      snapDone = todayStr();
+      saveNow(); renderProfile(); applySettings(); route(); closeModal();
+      toast('已清空全部数据');
+    }).catch(function(){ saveNow(); renderProfile(); applySettings(); route(); closeModal(); toast('已清空'); });
+    return;
+  }
+  if(act === 'restore-pending'){
+    if(!pendingRestore){ return; }
+    try{
+      state = deepMerge(clone(DEF_STATE), JSON.parse(pendingRestore));
+      saveNow(); applySettings(); renderProfile(); route();
+      var b = document.getElementById('restoreBar'); if(b) b.remove();
+      pendingRestore = null;
+      toast('🛟 已恢复');
+    }catch(e){ toast('恢复失败：数据格式不对'); }
+    return;
+  }
+  if(act === 'restore-dismiss'){
+    var b2 = document.getElementById('restoreBar'); if(b2) b2.remove();
+    pendingRestore = null;
+    return;
+  }
+  if(act === 'snap-refresh'){ loadSnapList(); toast('已刷新'); return; }
+  if(act === 'autosync-toggle'){
+    var sc = state.settings.sync || (state.settings.sync = {});
+    sc.auto = !sc.auto;
+    save();
+    if(sc.auto && !sc.url){ toast('已开启，但还没填 WebDAV 地址'); }
+    else toast(sc.auto ? '☁️ 自动同步已开启：每次改动 5 秒后上传' : '已关闭自动同步');
+    closeModal(); openSettings();
+    return;
+  }
+  if(act === 'snap-restore'){
+    var key = t.getAttribute('data-key');
+    if(!confirm('用 ' + key + ' 的快照覆盖当前数据？当前改动会丢。')) return;
+    idbGet('snap:' + key).then(function(rec){
+      if(!rec || !rec.json){ toast('这份快照读不出来'); return; }
+      state = deepMerge(clone(DEF_STATE), JSON.parse(rec.json));
+      saveNow(); applySettings(); renderProfile(); route(); closeModal();
+      toast('已恢复到 ' + key);
+    }).catch(function(){ toast('恢复失败'); });
     return;
   }
   if(act === 'hook-eye'){
@@ -2204,7 +2344,7 @@ function doSync(act){
     saveNow();
     fetch(target, { method:'PUT', headers:Object.assign({ 'Content-Type':'application/json' }, headers), body:JSON.stringify(state) })
       .then(function(r){
-        if(r.ok || r.status === 201 || r.status === 204){ s.connected = true; s.lastSync = new Date().toISOString(); save(); updateSyncPill(); toast('☁️ 已上传备份'); }
+        if(r.ok || r.status === 201 || r.status === 204){ s.connected = true; s.lastSync = new Date().toISOString(); state.settings.lastBackupTs = Date.now(); save(); updateSyncPill(); toast('☁️ 已上传备份'); }
         else toast('上传失败：' + r.status);
       })
       .catch(function(){ toast('上传失败：跨域或网络问题'); });
@@ -2221,6 +2361,68 @@ function doSync(act){
       .catch(function(){ toast('下载失败或文件不存在'); });
     return;
   }
+}
+
+/* ========== 自动云同步（改完 5 秒自动上传，不需手动点） ========== */
+var syncTimer = null;
+function syncHeaders(){
+  var s = state.settings.sync || {};
+  return { 'Authorization':'Basic ' + btoa(unescape(encodeURIComponent((s.user || '') + ':' + (s.pass || '')))) };
+}
+function syncTargetLed(){ var s = state.settings.sync || {}; return (s.url || '').replace(/\/?$/, '/') + 'shangan-backup.json'; }
+function scheduleAutoSync(){
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(function(){ autoPush(); }, 5000);
+}
+function autoPush(cb){
+  var s = state.settings.sync || {};
+  if(!s.url){ if(cb) cb(false); return; }
+  fetch(syncTargetLed(), { method:'PUT', headers:Object.assign({ 'Content-Type':'application/json' }, syncHeaders()), body:JSON.stringify(state) })
+    .then(function(r){
+      if(r.ok || r.status === 201 || r.status === 204){
+        s.connected = true; s.lastSync = new Date().toISOString(); s.lastError = '';
+        state.settings.lastBackupTs = Date.now();
+        save(); updateSyncPill(); if(cb) cb(true);
+      } else {
+        s.connected = false; s.lastError = 'HTTP ' + r.status; save(); updateSyncPill(); if(cb) cb(false);
+      }
+    })
+    .catch(function(){ s.connected = false; s.lastError = '跨域或网络异常'; save(); updateSyncPill(); if(cb) cb(false); });
+}
+function checkRemoteNewer(){
+  var s = state.settings.sync || {};
+  if(!s.url) return;
+  fetch(syncTargetLed(), { headers:syncHeaders() })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(obj){
+      if(!obj) return;
+      s.connected = true;
+      if((obj.updatedAt || 0) - (state.updatedAt || 0) > 5 * 60000){
+        showRestoreBar('云端备份', JSON.stringify(obj), obj.updatedAt);
+      }
+      save(); updateSyncPill();
+    })
+    .catch(function(){ s.connected = false; save(); updateSyncPill(); });
+}
+
+/* 每日快照列表（设置里展示） */
+function loadSnapList(){
+  var box = $('#snapList');
+  if(!box) return;
+  idbGet('snapindex').then(function(list){
+    list = (list || []).slice().sort().reverse();
+    if(!list.length){ box.innerHTML = '<div class="tiny muted">还没有快照：每天首次保存时自动留一份，保留最近 10 天</div>'; return; }
+    Promise.all(list.map(function(d){ return idbGet('snap:' + d).catch(function(){ return null; }); })).then(function(items){
+      var ok = items.filter(Boolean);
+      box.innerHTML = ok.length ? ok.map(function(it){
+        return '<div class="row" style="margin-bottom:6px"><div class="txt"><b>' + esc(it.date) + '</b>' +
+          '<div class="m">错题 ' + (it.wrong || 0) + ' 题 · 打卡 ' + (it.plans || 0) + ' 天 · ' + Math.round((it.size || 0) / 1024) + 'KB</div></div>' +
+          '<button class="btn sm" data-act="snap-restore" data-key="' + esc(it.date) + '">恢复</button></div>';
+      }).join('') : '<div class="tiny muted">快照读取失败</div>';
+    });
+  }).catch(function(){
+    box.innerHTML = '<div class="tiny muted">这个浏览器禁用了本地备份库（如无痕模式），只能靠云同步或导出</div>';
+  });
 }
 
 /* ================= 手势（收纳模式） ================= */
@@ -2284,6 +2486,44 @@ function boot(){
   try{ applySettings(); }catch(e){}
   route();
   try{ maybeAutoWeeklyPush(); }catch(e){}
+  setTimeout(afterBootChecks, 700);
+}
+
+/* 启动自检：localStorage 被清 → 自动从备份库恢复；备份库更新 → 提示恢复 */
+var pendingRestore = null;
+function afterBootChecks(){
+  try{
+    idbGet('state').then(function(rec){
+      if(!rec || !rec.json) return;
+      var cur = JSON.stringify(state);
+      if(rec.json === cur) return;
+      var isEmpty = !(state.wrong || []).length && !Object.keys(state.plans || {}).length && !(state.profile || {}).avatar;
+      if(isEmpty){
+        try{ state = deepMerge(clone(DEF_STATE), JSON.parse(rec.json)); }catch(e){ return; }
+        saveNow(); renderProfile(); route();
+        toast('🛟 浏览器数据被清过，已从本地备份库恢复');
+        return;
+      }
+      if((rec.ts || 0) - (state.updatedAt || 0) > 30000) showRestoreBar('本地备份库', rec.json, rec.ts);
+    }).catch(function(){});
+  }catch(e){}
+  try{
+    var s = state.settings.sync || {};
+    if(s.auto && s.url) checkRemoteNewer();
+  }catch(e){}
+}
+function showRestoreBar(source, json, ts){
+  pendingRestore = json;
+  var oldBar = document.getElementById('restoreBar');
+  if(oldBar) oldBar.remove();
+  var bar = document.createElement('div');
+  bar.id = 'restoreBar';
+  bar.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:180;max-width:92vw;width:520px;background:#fffdf9;border:1px solid #f3dcc4;border-radius:20px;box-shadow:0 12px 30px rgba(150,120,90,.22);padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+  bar.innerHTML = '<div style="flex:1;min-width:180px;font-size:calc(var(--fs-sm) + .5px);line-height:1.6">🛟 <b>' + esc(source) + '</b>里有比当前更新的数据（' +
+    (ts ? new Date(ts).toLocaleString('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—') + '）</div>' +
+    '<button class="btn sm primary" data-act="restore-pending">恢复</button>' +
+    '<button class="btn sm ghost" data-act="restore-dismiss">忽略</button>';
+  document.body.appendChild(bar);
 }
 window.addEventListener('error', function(e){
   try{ toast('出现小问题：' + (e.message || '').slice(0, 30)); }catch(err){}
