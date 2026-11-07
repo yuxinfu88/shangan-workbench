@@ -10,7 +10,10 @@
 <meta name="apple-mobile-web-app-title" content="上岸工作台">
 <title>上岸工作台 · 备考兔</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%B0%3C/text%3E%3C/svg%3E">
-<link rel="manifest" href='data:application/manifest+json,{"name":"上岸工作台","short_name":"上岸工作台","start_url":"./index.html","scope":"./","display":"standalone","orientation":"portrait","background_color":"#f8f1e8","theme_color":"#f8f1e8","description":"国省考备考工作台"}'>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
 <style>
 /* ===== 设计令牌 · 奶油米色治愈系 ===== */
 :root{
@@ -1659,7 +1662,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-07 · 23:12';
+var APP_BUILD = '2026-11-07 · 23:20';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
