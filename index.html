@@ -1934,7 +1934,7 @@ function openSettings(){
     '<button class="btn sm" data-act="sync-test">🔌 测试连接</button>' +
     '<button class="btn sm" data-act="sync-up">⬆️ 上传备份</button>' +
     '<button class="btn sm" data-act="sync-down">⬇️ 下载备份</button></div>' +
-    '<div class="tiny" style="margin-top:8px;background:#fff3ef;border:1px solid #fbd6ce;border-radius:12px;padding:8px 10px;color:#a9604f;line-height:1.65">⚠️ 云同步会把<b>整份数据</b>（含错题、备注、图片）上传到你填的这个服务器。只填你自己控制的地址；公共网盘、别人给的空间一律别填。留空 = 全程只在本机。</div></div>' +
+    '<div class="tiny" style="margin-top:8px;background:#fff3ef;border:1px solid #fbd6ce;border-radius:12px;padding:8px 10px;color:#a9604f;line-height:1.65">⚠️ 云同步会把<b>整份数据</b>（含错题、备注、图片）上传到你填的这个服务器；文件里<b>不含</b>你的 WebDAV 密码和飞书 webhook（凭证只留本机）。只填你自己控制的地址，公共网盘、别人给的空间一律别填。留空 = 全程只在本机。</div></div>' +
     '<div class="field"><label>📨 周报推送（飞书 / 邮件）</label>' +
     '<div style="display:flex;gap:8px">' +
     '<input class="inp" id="rpWebhook" type="password" autocomplete="off" data-report-field="webhook" placeholder="飞书群机器人 webhook：https://open.feishu.cn/open-apis/bot/v2/hook/..." value="' + esc((state.settings.report || {}).webhook || '') + '">' +
