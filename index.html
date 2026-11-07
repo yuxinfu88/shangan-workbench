@@ -1659,7 +1659,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-07 · 23:00';
+var APP_BUILD = '2026-11-07 · 23:12';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -1965,7 +1965,7 @@ function openSettings(){
     '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">' +
     '<button class="btn sm primary" data-act="gh-push">⬆️ 上传</button>' +
     '<button class="btn sm" data-act="gh-pull">⬇️ 下载</button>' +
-    '<button class="btn sm' + ((state.settings.gh || {}).auto ? ' primary' : '') + '" data-act="gh-auto">' + ((state.settings.gh || {}).auto ? '🔁 自动同步：已开' : '🔁 自动同步：关') + '</button>' +
+    '<button class="btn sm' + ((state.settings.gh || {}).auto ? ' primary' : '') + '" data-act="gh-auto">' + ((state.settings.gh || {}).auto ? '🔁 自动同步：已开（改完 5 秒上传）' : '🔁 自动同步：点这里开启') + '</button>' +
     '<button class="btn sm ghost" data-act="gh-clear">断开</button></div></div>' +
     '<details style="margin:4px 0 12px;border:1px solid #eee2d4;border-radius:14px;padding:2px 10px;background:#fffdf9">' +
     '<summary style="cursor:pointer;font-size:var(--fs-sm);font-weight:700;color:#8b7b6c;padding:8px 0">⚙️ 高级：自建 WebDAV（坚果云等商业网盘不可用，点开看）</summary>' +
@@ -1995,11 +1995,10 @@ function openSettings(){
     '· 每次改动同时写 localStorage 与浏览器备份库（IndexedDB），一边坏了另一边还在；<br>' +
     '· 每天首次保存自动留一份快照，保留 10 天，可一键回到任意一天；<br>' +
     '· 浏览器数据被清空后打开，会<b>自动</b>从备份库恢复；<br>' +
-    '· 填了 WebDAV 并开启自动同步，改完 5 秒就传一份到你自己的网盘（真正的异地副本）。</div>' +
+    '· 上面「GitHub Gist」那栏开了自动同步后，改完 5 秒传到你的私密 Gist（真正的异地副本）。</div>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">' +
-    '<button class="btn sm' + ((state.settings.sync || {}).auto ? ' primary' : '') + '" data-act="autosync-toggle">' +
-    ((state.settings.sync || {}).auto ? '☁️ 自动同步：已开' : '☁️ 自动同步：关') + '</button>' +
-    '<button class="btn sm" data-act="snap-refresh">🔄 刷新快照</button></div>' +
+    '<button class="btn sm" data-act="snap-refresh">🔄 刷新快照</button>' +
+    '<button class="btn sm" data-act="snap-restore-latest">↩️ 退回最近快照</button></div>' +
     '<div class="tiny muted" style="margin-bottom:6px">' + backupAgeText() + '</div>' +
     '<div id="snapList"><div class="tiny muted">读取快照中…</div></div></div>' +
     '<div class="field"><label style="color:#c9604f">危险操作</label>' +
@@ -2291,6 +2290,22 @@ document.addEventListener('click', function(e){
     return;
   }
   if(act === 'snap-refresh'){ loadSnapList(); toast('已刷新'); return; }
+  if(act === 'snap-restore-latest'){
+    idbGet('snapindex').then(function(list){
+      list = (list || []).slice().sort();
+      if(!list.length){ toast('还没有快照'); return; }
+      var k = list[list.length - 1];
+      if(!confirm('用 ' + k + ' 的快照覆盖当前数据？')) return;
+      return idbGet('snap:' + k).then(function(rec){
+        if(!rec || !rec.json){ toast('快照读不出来'); return; }
+        var prevSt = clone(state);
+        state = keepLocalSecrets(deepMerge(clone(DEF_STATE), JSON.parse(rec.json)), prevSt);
+        saveNow(); applySettings(); renderProfile(); route(); closeModal();
+        toast('已退回到 ' + k);
+      });
+    }).catch(function(){ toast('读取失败'); });
+    return;
+  }
   if(act === 'autosync-toggle'){
     var sc = state.settings.sync || (state.settings.sync = {});
     sc.auto = !sc.auto;
