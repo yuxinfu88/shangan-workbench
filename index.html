@@ -1172,6 +1172,12 @@ function progressCard(catName){
     '<div class="tiny muted" style="margin-top:8px">' + (detail.length ? detail.join('　·　') : '今天还没开始，先勾一条待办或做一道题吧 🐰') + '</div></div>';
 }
 
+/* 题目性质说明（诚实标注：这些不是真题原文） */
+function simNote(text){
+  return '<div class="tiny" style="margin:8px 0 4px;color:#a8811f;background:#fffaf0;border:1px dashed #f0ddb4;border-radius:12px;padding:7px 10px;line-height:1.65">' +
+    esc(text || '以下题目为按公考常见题型自编的模拟题，用于练手型与方法，<b>不是真题原文</b>；解析为整理所得，仅供参考。') + '</div>';
+}
+
 /* 测验组件 */
 function quizHTML(modKey, catName, q, qid){
   var rec = state.quizLog[qid];
@@ -1336,7 +1342,7 @@ function renderPolitics(){
 
   html += '<div class="card"><div class="card-head"><h2>📰 今日时政热点积累</h2>' +
           '<span class="tag">5 条</span><span class="right tiny muted">数据包更新：' + NEWS_PACK_DATE + '</span></div>' +
-          '<div class="tiny muted" style="margin-bottom:10px">已按公考视角标注考点；每条附官方链接，点开可查原文全文。</div>';
+          '<div class="tiny" style="margin-bottom:10px;background:#f2f9f4;border:1px solid #cfe8d8;border-radius:12px;padding:7px 10px;line-height:1.65;color:#3f7a5c">✅ 这个模块是<b>真实</b>内容：新闻标题、日期、正文摘要均抓自新华网/中国政府网（附原文链接可逐条核对）；"考点"标注是我按公考视角写的解读。</div>';
   if(todayStr() !== NEWS_PACK_DATE){
     html += '<div class="tiny" style="background:#fff3ef;border:1px solid #fbd6ce;border-radius:12px;padding:8px 10px;margin-bottom:10px;color:#a9604f">' +
       '⏰ 今天的数据包日期是 ' + NEWS_PACK_DATE + '。想读此刻最新时政，可打开 <a href="https://www.news.cn/politics/" target="_blank" rel="noopener">新华网·时政</a> 或 ' +
@@ -1393,6 +1399,7 @@ function renderVerbal(){
 
   html += '<div class="card"><div class="card-head"><h2>📖 今日成语辨析 5 对</h2><span class="tag">公考高频</span>' +
           '<span class="right tiny muted">每天轮换</span></div>';
+  html += simNote('成语辨析与检验题为自编模拟题（辨析点依据《现代汉语词典》通行释义整理），不是真题原文。');
   for(var i = 0; i < 5; i++){
     var it = IDIOMS[(day * 5 + i) % IDIOMS.length];
     var qid = 'verbal-' + day + '-' + i;
@@ -1418,6 +1425,7 @@ function renderLogic(){
 
   html += '<div class="card"><div class="card-head"><h2>🧠 今日题型 2 题</h2><span class="tag">滚动出题</span>' +
           '<span class="right tiny muted">做完自动计入统计</span></div>';
+  html += simNote('这两道题是按公考逻辑判断常见题型自编的模拟题，不是真题原文。');
   for(var i = 0; i < 2; i++){
     var q = LOGIC[(day * 2 + i) % LOGIC.length];
     var qid = 'logic-' + day + '-' + i;
@@ -1446,7 +1454,8 @@ function renderMath(){
   html += progressCard('数量关系');
 
   html += '<div class="card"><div class="card-head"><h2>🧮 今日题型：' + esc(t.name) + '</h2><span class="tag">公式 + 例题</span>' +
-          '<span class="right"><button class="btn sm" data-act="math-next">🔄 换一个</button></span></div>' +
+          '<span class="right"><button class="btn sm" data-act="math-next">🔄 换一个</button></span></div>';
+  html += simNote('公式是客观知识点；例题为自编，用于演示该题型的解法，不是真题原文。');
           '<div class="kp" style="display:block;font-size:var(--fs-body);line-height:1.9">' + esc(t.formula) + '</div>' +
           '<div class="item" style="margin-top:12px"><h3>例题</h3><p>' + esc(t.example) + '</p>' +
           '<div id="mathAns" style="display:none" class="explain"><b>答案：' + esc(t.answer) + '</b><br>' + esc(t.tip) + '</div>' +
@@ -1475,6 +1484,7 @@ function renderData(){
   });
   html += '</div>';
 
+  html += simNote('公式板块为客观知识点；检验题为自编模拟题，数字为示例构造，不是真题原文。');
   html += '<div class="card"><div class="card-head"><h2>✅ 今日检验 2 题</h2><span class="tag mint">做完看解析</span></div>';
   for(var i = 0; i < 2; i++){
     var q = DATA_QUIZ[(day * 2 + i) % DATA_QUIZ.length];
@@ -1558,7 +1568,8 @@ function renderSlSmall(){
   html += progressCard('申论小题');
 
   html += '<div class="card"><div class="card-head"><h2>📝 今日例题</h2><span class="tag warm">' + esc(it.type) + '</span>' +
-          '<span class="right"><button class="btn sm" data-act="sl-next">🔄 换一题</button></span></div>' +
+          '<span class="right"><button class="btn sm" data-act="sl-next">🔄 换一题</button></span></div>';
+  html += simNote('材料与设问均为自编模拟题（虚构的县/市案例），用于练答题结构，不是真题原文；参考答案为要点式。');
           '<div class="item"><h3>材料</h3><p>' + esc(it.mat) + '</p></div>' +
           '<div class="item"><h3>作答要求</h3><p>' + esc(it.q) + '</p></div>' +
           '<button class="btn primary" data-act="sl-points">👀 看参考答案要点</button>' +
@@ -1582,6 +1593,7 @@ function renderSlBig(){
   html += todoCard('申论大作文');
   html += progressCard('申论大作文');
 
+  html += simNote('分论点框架为自编写作模板；下方"素材"与"金句"是真实来源（附链接/出处），可直接引用。');
   html += '<div class="card"><div class="card-head"><h2>🎨 今日主题：' + esc(it.theme) + '</h2>' +
           '<span class="right"><button class="btn sm" data-act="big-next">🔄 换主题</button></span></div>' +
           '<div class="tiny muted">一个主题的两个方面：左边是"素材"，右边是"金句与框架"。</div></div>';
@@ -1968,7 +1980,7 @@ function openSettings(){
     '· 唯一会上传数据的出口是「云同步」和「推送到飞书」，两者都由你手动填地址；<br>' +
     '· 导出的备份默认不含密码和 webhook；<br>' +
     '· 手机/电脑各自独立，换设备用「导出/导入」搬。</div></div>' +
-    '<div class="tiny muted" style="margin-top:10px;line-height:1.7">上岸工作台 · 单文件离线版<br>时政数据包更新于 ' + NEWS_PACK_DATE + '，其余题目为每日轮换的本地题库。</div>',
+    '<div class="tiny muted" style="margin-top:10px;line-height:1.7">上岸工作台 · 单文件离线版<br><b>内容性质</b>：时政、大作文素材、官方金句＝真实来源（附链接/出处）；言语、逻辑、数量例题、资料检验题、申论小题＝按公考题型自编的模拟题，<b>不是真题原文</b>。<br>时政数据包更新于 ' + NEWS_PACK_DATE + '。</div>',
     function(){ loadSnapList(); }
   );
 }
