@@ -740,7 +740,8 @@ const NAV_GROUPS = [
     {key:'stats', icon:'📈', label:'每日统计'}
   ]},
   {name:'老师心法', items:[
-    {key:'skills', icon:'🎓', label:'技能卡'}
+    {key:'skills', icon:'🎓', label:'技能卡'},
+    {key:'compare', icon:'⚖️', label:'对比卡'}
   ]},
   {name:'申论学习', items:[
     {key:'sl-small', icon:'✍️', label:'申论小题'},
@@ -1602,6 +1603,118 @@ function aiSend(){
   .finally(function(){ aiBusy = false; });
 }
 
+/* ================= 跨老师对比卡（依据各家技能包自述的方法论提炼） ================= */
+const COMPARE = [
+ { id:'c1', mod:'资料分析', topic:'速算主线', q:'一道除法题拿到手，第一步先干什么？',
+   rows:[
+     {t:'唐宋', m:'先定题型（求量还是求比例、现期还是基期），把比重/平均数/倍数统一看成 A/B，两把刀：截位直除 + 等比例放缩', f:'计算慢、看到小数就懵'},
+     {t:'高照', m:'速算四件套按选项差距选工具：截位直除 / 包子法 / 等比例修正 / 分数比较', f:'想要一张"什么时候用哪把刀"的表'},
+     {t:'牟立志', m:'定性先行——方向和量级先于数值；选项是外部决策器，算前先看；误差记账（凑整是贷款，必须还）', f:'算得对但总超时、爱精算'},
+     {t:'岳飞', m:'变而不算：先看选项能借多少力，能用选项排除就不算', f:'想靠选项省时间'}],
+   diff:'唐宋、高照是"刀法流"（决定用哪把刀）；牟立志、岳飞是"判断流"（先判断要不要动刀）。',
+   pick:'速度慢 → 唐宋或高照；方向总错 → 牟立志；克制不住精算 → 岳飞。'},
+ { id:'c2', mod:'资料分析', topic:'基期·比重·两期比例', q:'比重题、平均数题、倍数题要不要各学一套？',
+   rows:[
+     {t:'花生十三', m:'ABRX 主干体系 + 六模块 SOP（速算/ABRX/比重/盐水/比较/平均倍数），先看头尾再定主体', f:'想按题型一张表查'},
+     {t:'唐宋', m:'比重、平均数、倍数全部归成 A/B，两期比例用增长率比较代替计算', f:'不想记五个题型'},
+     {t:'邓健', m:'前四讲"能力课"打底（读题识别 / 找数量级 / 分数比较 / 等比例放缩），再上题型课', f:'基础薄、想从头搭'},
+     {t:'陈怀安', m:'先查考点识别表定考点（求基期？求比重变化？），再选方法', f:'常把题型认错'},
+     {t:'正道', m:'读题信号系统——题干出现哪些词就调哪种解法', f:'喜欢按"题干关键词"反应'}],
+   diff:'入口不同：花生、陈怀安从"题型"进；唐宋从"比例"统一进；邓健从"能力"打底进。',
+   pick:'一题一法最踏实 → 花生/陈怀安；题型太多记不住 → 唐宋；基础差 → 邓健。'},
+ { id:'c3', mod:'判断推理', topic:'加强削弱', q:'两个选项都像，凭什么砍掉一个？',
+   rows:[
+     {t:'李焕', m:'论证零件论（削弱只有三类）+ 缺陷对称律（削弱的反面就是支持）+ 结构化阅读', f:'分不清论点、论据、论证'},
+     {t:'薛睿', m:'考官视角——反推"他为什么这么设错"；结构优先，只看结构不看内容', f:'总在两个选项里纠结'},
+     {t:'苏有朋', m:'识别优先——识别出考点，题就做完了；出题人视角', f:'速度上不去'},
+     {t:'聂佳', m:'加强削弱 100 题带刷，靠题量养出"选项直觉"', f:'理论听懂了但下笔犹豫'}],
+   diff:'李焕给"零件拆解"，薛睿/苏有朋给"出题人视角"，聂佳给"题感"。',
+   pick:'分析不出论证结构 → 李焕；选项纠结 → 薛睿；缺手感 → 聂佳。'},
+ { id:'c4', mod:'判断推理', topic:'形式逻辑（翻译推理）', q:'"只有…才…"这类题，你是背口诀还是画符号？',
+   rows:[
+     {t:'孙江媛', m:'只认连接词，不认内容；先找确定的，找不到才假设（确定性漏斗）；答案有固定形状', f:'总被题干内容带跑'},
+     {t:'章晓铭', m:'充分必要 / 且或要么 / 所有有的必然可能，按符号系统推', f:'常把箭头方向搞反'},
+     {t:'薛睿', m:'结构优先 + 一步推理（条件反射）', f:'推得对但慢'},
+     {t:'程意', m:'先定题型——锁不对，方法全废；再走固定 SOP', f:'题型总分不清'}],
+   diff:'都要翻译成符号，差别在入口：孙江媛从连接词，章晓铭从命题类型，程意从题型锁。',
+   pick:'箭头总反 → 章晓铭；慢 → 薛睿；题型混 → 程意。'},
+ { id:'c5', mod:'判断推理', topic:'图形推理', q:'看不出规律时，按什么顺序看？',
+   rows:[
+     {t:'刘一恒', m:'3+3 概念框架 + 五大题型路由 + 定位优先级与排除逻辑（平面图推全考点）', f:'没有固定的看图顺序'},
+     {t:'苏有朋', m:'本质是限制——数量限制 + 空间限制 + 计数', f:'想理解"为什么这么考"'},
+     {t:'程永乐', m:'所有方法都是用来排除的', f:'总想一眼看出答案'},
+     {t:'青菜白玉汤', m:'先整体后局部、先机械后灵活：固定遍历顺序，特征命中即跳', f:'考场容易愣住'}],
+   diff:'刘一恒给"路由表"，苏有朋给"底层原理"，程永乐/青菜白玉汤给"考场流程"。',
+   pick:'看不出规律 → 刘一恒的顺序；想快 → 程永乐；想通透 → 苏有朋。'},
+ { id:'c6', mod:'判断推理', topic:'定义判断', q:'长定义读三遍还是读不完，怎么办？',
+   rows:[
+     {t:'李陈', m:'拆词（名字就是压缩包）+ 信息瘦身（能读懂啥先读啥）+ 得分结构思维（二选一不是失败）', f:'被长定义绕晕'},
+     {t:'花生十三', m:'抓被定义词（外号模型）+ 题型决定答案的长相', f:'读得懂但选错'},
+     {t:'聂佳', m:'定义判断 100 题带刷', f:'缺题感'}],
+   diff:'李陈从"词"拆，花生从"被定义词"抓，聂佳从题量堆。',
+   pick:'读不动 → 李陈；选了又不对 → 花生。'},
+ { id:'c7', mod:'言语理解', topic:'中心理解（主旨）', q:'为什么总选到"正确但片面"的选项？',
+   rows:[
+     {t:'张弓', m:'关系决定重要性 + 一个半题型 + 抓大放小 + 三步走', f:'分不清主次'},
+     {t:'大宝', m:'以人为本（文段为王），中心理解是所有言语题的基石', f:'喜欢用自己的常识做判断'},
+     {t:'大懒猫', m:'中心地基论 + 择优思维 + 慢就是快 + 去自我化阅读', f:'总被常识带偏'},
+     {t:'郭熙', m:'言语高分"十二技"体系（中心理解 4 讲起）', f:'想要完整体系'},
+     {t:'花生十三', m:'三类文段分类 + 双标原则', f:'喜欢先分类再解题'}],
+   diff:'张弓给"关系判断"，大宝/大懒猫强调"文段为王、去自我化"，花生十三给"文段分类"。',
+   pick:'总选片面项 → 张弓；爱用常识 → 大懒猫；想成体系 → 郭熙。'},
+ { id:'c8', mod:'数量关系', topic:'总策略：先做哪几道', q:'数量 10 道，怎么在两分钟内决定做哪三道？',
+   rows:[
+     {t:'李威猛', m:'数量放最后做 + 功利学数学；六大方法总纲（代入排除/数字特性/方程/赋值/归纳/十字交叉）', f:'分配不出时间'},
+     {t:'林凡', m:'识别排第一（破题点机制）+ 排除法哲学（不是选它对，是另外三个不行）+ 份数思维 + 赋值优于设未知数', f:'列方程慢'},
+     {t:'陈折桂', m:'先定型再落手（分流表比公式重要）+ 赋值优先 + 不变量是锚', f:'不知道怎么下手'},
+     {t:'忧郁牛牛', m:'提速优先——公式是备胎，不是主食', f:'公式背了一堆用不上'},
+     {t:'毛娃', m:'忠于条件拒绝加戏 + 先定性后定量 + 比例与倍数是统一骨架', f:'常自己加条件'}],
+   diff:'李威猛给"取舍"，林凡、陈折桂给"识别与赋值"，牛牛给"速度"，毛娃给"边界感"。',
+   pick:'做不完 → 李威猛；列方程慢 → 林凡/陈折桂；公式依赖 → 牛牛。'},
+ { id:'c9', mod:'申论', topic:'归纳概括与采分', q:'为什么你的答案总是"少一条"？',
+   rows:[
+     {t:'袁东', m:'按词给分宇宙观 + 动词+事情=万能采分单元 + 选大哥（总括词体系）+ 粗读定框架、精读定内容', f:'要点多但层次乱'},
+     {t:'李崇立', m:'材料为王 + 踩点给分多写不扣 + 五步法（审题→阅读→找点→加工→书写）', f:'总是漏点'},
+     {t:'kiwi', m:'材料是爹、问题是妈 + 分层标注 + 概括的 MECE 原则（不重不漏）', f:'要点重复或遗漏'},
+     {t:'小马哥', m:'材料是爹 + 大哥思维（找大哥分层次）+ 五步法', f:'不会分层次'}],
+   diff:'袁东、小马哥讲"选大哥（总括词）"，李崇立讲"踩点全"，kiwi 讲"MECE 不重不漏"。',
+   pick:'要点总缺 → 李崇立/kiwi；点太多没层次 → 袁东的选大哥。'},
+ { id:'c10', mod:'申论', topic:'大作文', q:'分论点写不出、写完像散文，先补哪一块？',
+   rows:[
+     {t:'杨天明', m:'"天明六步法"完整大作文流程（专项特训营体系）', f:'完全没有章法'},
+     {t:'kiwi', m:'先求其形，再塑其神——先立框架再填内容', f:'有想法但写不整'},
+     {t:'bud', m:'策论文与议论文分开讲；字数决定取舍；题目问你什么就答什么', f:'文体写混'},
+     {t:'白鹭', m:'字数换算行数模型 + 关键词重复=总分关系', f:'字数总超或不够'}],
+   diff:'杨天明给完整流程，kiwi 给"先形后神"，bud 给文体分野，白鹭给字数与结构判断。',
+   pick:'像散文 → bud 的文体；结构散 → 杨天明六步；字数失控 → 白鹭。'}
+];
+function compareTeacherNames(){
+  var s = {};
+  COMPARE.forEach(function(c){ c.rows.forEach(function(r){ s[r.t] = 1; }); });
+  return Object.keys(s);
+}
+function renderCompare(){
+  var html = pageHead('⚖️', '跨老师对比卡', '');
+  html += '<div class="card butter"><div class="card-head"><h2>🎯 怎么用这张表</h2></div>' +
+    '<div class="tiny" style="line-height:1.9">同一类题，' + compareTeacherNames().length + ' 位老师给了不同入口。<b>不要都学</b>：先照"你卡在哪"选一位，把他的流程走熟，再补第二位。<br>' +
+    '点老师名字可以直接问他的 AI（需要已在技能库导入对应 .md）。</div></div>';
+  var curMod = '';
+  COMPARE.forEach(function(c){
+    if(c.mod !== curMod){ curMod = c.mod; html += '<div class="card-head" style="margin:16px 0 8px"><h2>' + esc(c.mod) + '</h2></div>'; }
+    html += '<div class="card"><div class="card-head"><h2>🔍 ' + esc(c.topic) + '</h2><span class="tag">' + c.rows.length + ' 位</span></div>' +
+      '<div class="when" style="font-size:calc(var(--fs-sm) + .5px);color:#4a8dba;background:#eef6fc;border-radius:12px;padding:8px 10px;line-height:1.7">问题：' + esc(c.q) + '</div>';
+    c.rows.forEach(function(r){
+      html += '<div class="skill" style="margin-top:9px"><h3><button class="btn sm" style="padding:2px 10px" data-act="compare-ask" data-name="' + esc(r.t) + '">🤖 ' + esc(r.t) + '</button></h3>' +
+        '<div class="tiny" style="line-height:1.8">' + esc(r.m) + '</div>' +
+        '<div class="tiny muted" style="margin-top:4px">👤 适合：' + esc(r.f) + '</div></div>';
+    });
+    html += '<div class="mantra">🔀 差别：' + esc(c.diff) + '</div>' +
+            '<div class="trap">✅ 怎么选：' + esc(c.pick) + '</div></div>';
+  });
+  html += '<div class="card"><div class="card-head"><h2>⚠️ 说明</h2></div>' +
+    '<div class="tiny muted" style="line-height:1.8">每一条都取自对应技能包自己的方法论描述（不是我的推测）；不同老师的叫法不同，本质重叠很多——比如"截位直除"和"变而不算"常常是同一件事的两种说法。选人不如选流程：把一个人的流程走 50 道题，比五个人的口诀都看一遍有效。</div></div>';
+  return html;
+}
 /* ================= 页面：倒计时 ================= */
 function maoOfDay(){
   var n = dayNum() % MAO_QUOTES.length;
@@ -2044,7 +2157,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 01:22';
+var APP_BUILD = '2026-11-08 · 01:45';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
@@ -2743,6 +2856,15 @@ document.addEventListener('click', function(e){
     fd.click();
     return;
   }
+  if(act === 'compare-ask'){
+    var cn = t.getAttribute('data-name');
+    loadTeachers().then(function(list){
+      var hit = (list || []).filter(function(x){ return x.name.indexOf(cn) === 0; })[0];
+      if(!hit){ toast('「' + cn + '」还没导入，先去技能库导入 .md'); return; }
+      openTeacherSkill(hit.id);
+    }).catch(function(){ toast('读取失败'); });
+    return;
+  }
   if(act === 'teacher-ask'){ openTeacherSkill(t.getAttribute('data-id')); return; }
   if(act === 'teacher-preview'){ previewTeacherSkill(t.getAttribute('data-id')); return; }
   if(act === 'teacher-del'){
@@ -3257,7 +3379,7 @@ document.addEventListener('keydown', function(e){
 var PAGES = {
   'countdown':renderCountdown, 'plans':renderPlans, 'politics':renderPolitics, 'common':renderCommon,
   'verbal':renderVerbal, 'logic':renderLogic, 'math':renderMath, 'data':renderData, 'stats':renderStats,
-  'sl-small':renderSlSmall, 'sl-big':renderSlBig, 'wrong':renderWrong, 'skills':renderSkills
+  'sl-small':renderSlSmall, 'sl-big':renderSlBig, 'wrong':renderWrong, 'skills':renderSkills, 'compare':renderCompare
 };
 function route(){
   var key = (location.hash || '#countdown').replace('#','');
