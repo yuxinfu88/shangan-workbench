@@ -2225,7 +2225,8 @@ document.addEventListener('click', function(e){
   if(act === 'restore-pending'){
     if(!pendingRestore){ return; }
     try{
-      state = deepMerge(clone(DEF_STATE), JSON.parse(pendingRestore));
+      var prevSt2 = clone(state);
+      state = keepLocalSecrets(deepMerge(clone(DEF_STATE), JSON.parse(pendingRestore)), prevSt2);
       saveNow(); applySettings(); renderProfile(); route();
       var b = document.getElementById('restoreBar'); if(b) b.remove();
       pendingRestore = null;
@@ -2342,7 +2343,7 @@ function doSync(act){
   }
   if(act === 'sync-up'){
     saveNow();
-    fetch(target, { method:'PUT', headers:Object.assign({ 'Content-Type':'application/json' }, headers), body:JSON.stringify(state) })
+    fetch(target, { method:'PUT', headers:Object.assign({ 'Content-Type':'application/json' }, headers), body:JSON.stringify(cloudPayload()) })
       .then(function(r){
         if(r.ok || r.status === 201 || r.status === 204){ s.connected = true; s.lastSync = new Date().toISOString(); state.settings.lastBackupTs = Date.now(); save(); updateSyncPill(); toast('☁️ 已上传备份'); }
         else toast('上传失败：' + r.status);
@@ -2354,7 +2355,8 @@ function doSync(act){
     fetch(target, { headers:headers })
       .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function(obj){
-        state = deepMerge(clone(DEF_STATE), obj);
+        var prevSt = clone(state);
+        state = keepLocalSecrets(deepMerge(clone(DEF_STATE), obj), prevSt);
         s = state.settings.sync; s.connected = true; s.lastSync = new Date().toISOString();
         saveNow(); applySettings(); renderProfile(); route(); closeModal(); toast('☁️ 已下载并覆盖本地数据');
       })
@@ -2377,7 +2379,7 @@ function scheduleAutoSync(){
 function autoPush(cb){
   var s = state.settings.sync || {};
   if(!s.url){ if(cb) cb(false); return; }
-  fetch(syncTargetLed(), { method:'PUT', headers:Object.assign({ 'Content-Type':'application/json' }, syncHeaders()), body:JSON.stringify(state) })
+  fetch(syncTargetLed(), { method:'PUT', headers:Object.assign({ 'Content-Type':'application/json' }, syncHeaders()), body:JSON.stringify(cloudPayload()) })
     .then(function(r){
       if(r.ok || r.status === 201 || r.status === 204){
         s.connected = true; s.lastSync = new Date().toISOString(); s.lastError = '';
@@ -2388,6 +2390,22 @@ function autoPush(cb){
       }
     })
     .catch(function(){ s.connected = false; s.lastError = '跨域或网络异常'; save(); updateSyncPill(); if(cb) cb(false); });
+}
+/* 上传到云端的备份：剥掉本机凭证（密码/webhook 只留在本机） */
+function cloudPayload(){
+  var c = clone(state);
+  if(c.settings && c.settings.sync) c.settings.sync.pass = '';
+  if(c.settings && c.settings.report) c.settings.report.webhook = '';
+  return c;
+}
+/* 从云端/外部恢复时，保留本机已填的凭证，避免同步被自己清断 */
+function keepLocalSecrets(next, prev){
+  try{
+    var pv = prev || {}, ps = (pv.settings || {}).sync || {}, pr = (pv.settings || {}).report || {};
+    if(next.settings && next.settings.sync && !next.settings.sync.pass && ps.pass) next.settings.sync.pass = ps.pass;
+    if(next.settings && next.settings.report && !next.settings.report.webhook && pr.webhook) next.settings.report.webhook = pr.webhook;
+  }catch(e){}
+  return next;
 }
 function checkRemoteNewer(){
   var s = state.settings.sync || {};
