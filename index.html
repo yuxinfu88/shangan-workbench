@@ -1037,13 +1037,13 @@ function updateSyncPill(){
   var pill = $('#syncPill'), txt = $('#syncText');
   if(g.token && g.gistId){
     pill.classList.add('online'); pill.classList.remove('local');
-    txt.textContent = '☁️ Gist 同步 ' + (g.lastSync ? g.lastSync.slice(5, 16).replace('T', ' ') : '· 待同步');
+    txt.textContent = '☁️ Gist 同步 ' + (g.lastSync ? fmtLocalTime(g.lastSync) : '· 待同步');
     pill.title = '数据已同步到你的私密 GitHub Gist';
     return;
   }
   if(s.connected && s.url){
     pill.classList.add('online'); pill.classList.remove('local');
-    txt.textContent = '☁️ 已连接 ' + (s.lastSync ? s.lastSync.slice(5, 16) : '· 待同步');
+    txt.textContent = '☁️ 已连接 ' + (s.lastSync ? fmtLocalTime(s.lastSync) : '· 待同步');
   } else {
     pill.classList.add('local'); pill.classList.remove('online');
     var stale = !state.settings.lastBackupTs || (Date.now() - state.settings.lastBackupTs) > 30 * 86400000;
@@ -2289,8 +2289,15 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 03:10';
+var APP_BUILD = '2026-11-08 · 03:25';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
+/* ISO(UTC) → 本机时区的 MM-DD HH:MM */
+function fmtLocalTime(iso){
+  if(!iso) return '';
+  var d = new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  return pad2(d.getMonth()+1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
 function weekBounds(offsetWeeks){
   var s = weekStart(); s.setDate(s.getDate() + (offsetWeeks || 0) * 7);
   return { start:s, end:new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6) };
@@ -2746,7 +2753,7 @@ function openSettings(){
     '<button class="btn sm" data-act="gh-eye" style="flex:0 0 auto">👁</button></div>' +
     '<div class="tiny muted" style="margin-top:5px">生成：GitHub → Settings → Developer settings → Personal access tokens → <b>Tokens (classic)</b> → Generate new token → 只勾 <b>gist</b> → 复制粘贴到这里。只存本机，可随时在 GitHub 撤销。</div>' +
     '<div class="tiny muted" style="margin-top:6px">' + ((state.settings.gh || {}).gistId
-      ? ('已绑定 Gist：' + esc(state.settings.gh.gistId.slice(0, 4) + '…' + state.settings.gh.gistId.slice(-4)) + ' · 上次同步 ' + esc(((state.settings.gh.lastSync || '').slice(5, 16) || '—').replace('T', ' ')) + '<br>Gist ID 只显示头尾：GitHub 的私密 Gist 拿到完整 ID 就能匿名读取，别截图外传')
+      ? ('已绑定 Gist：' + esc(state.settings.gh.gistId.slice(0, 4) + '…' + state.settings.gh.gistId.slice(-4)) + ' · 上次同步 ' + esc(fmtLocalTime(state.settings.gh.lastSync) || '—') + '（本地时间）' + '<br>Gist ID 只显示头尾：GitHub 的私密 Gist 拿到完整 ID 就能匿名读取，别截图外传')
       : '还没上传过：填好 token 点「上传」，会自动建一个私密 Gist') + '</div>' +
     '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">' +
     '<button class="btn sm primary" data-act="gh-push">⬆️ 上传</button>' +
