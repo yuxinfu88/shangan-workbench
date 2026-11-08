@@ -2426,7 +2426,7 @@ function ptElapsed(){
   return { total:(t.accTotal || 0) + cur, seg:(t.segAcc[t.seg] || 0) + cur };
 }
 function ptStart(seg){
-  state.paperTimer = { on:true, seg:seg || '常识', segStart:Date.now(), accTotal:0, segAcc:{}, mods:{}, paused:false };
+  state.paperTimer = { on:true, seg:seg || '常识', segStart:Date.now(), accTotal:0, segAcc:{}, mods:{}, paused:false, pauseCount:0, pauseSec:0, pauseStart:null };
   saveNow(); route(); toast('⏱ 开始计时：' + (seg || '常识'));
 }
 function ptSwitch(seg){
@@ -2441,11 +2441,13 @@ function ptPause(){
   var t = ptNow(); if(!t || t.paused) return;
   var el = ptSinceSegStart();
   if(el){ t.segAcc[t.seg] = (t.segAcc[t.seg] || 0) + el; t.accTotal = (t.accTotal || 0) + el; }
-  t.paused = true; t.segStart = null;
+  t.paused = true; t.segStart = null; t.pauseStart = Date.now();
   saveNow(); route(); toast('⏸ 已暂停');
 }
 function ptResume(){
   var t = ptNow(); if(!t || !t.paused) return;
+  if(t.pauseStart){ t.pauseSec = (t.pauseSec || 0) + Math.round((Date.now() - t.pauseStart) / 1000); t.pauseStart = null; }
+  t.pauseCount = (t.pauseCount || 0) + 1;
   t.paused = false; t.segStart = Date.now();
   saveNow(); route(); toast('▶️ 继续计时');
 }
@@ -2453,10 +2455,14 @@ function ptStop(){
   var t = ptNow(); if(!t) return null;
   var el = ptSinceSegStart();
   if(el){ t.segAcc[t.seg] = (t.segAcc[t.seg] || 0) + el; t.accTotal = (t.accTotal || 0) + el; }
-  var acc = Object.assign({}, t.segAcc), total = t.accTotal, mods = Object.assign({}, t.mods || {});
-  if(acc[t.seg] != null) acc[t.seg] = acc[t.seg] + 0;
+  var acc = Object.assign({}, t.segAcc), total = t.accTotal || 0, mods = Object.assign({}, t.mods || {});
+  var pauses = { count:t.pauseCount || 0, sec:t.pauseSec || 0 };
+  if(t.pauseStart){
+    pauses.sec += Math.round((Date.now() - t.pauseStart) / 1000);
+    pauses.count += 1;
+  }
   state.paperTimer = null; saveNow();
-  return { acc:acc, total:total, mods:mods };
+  return { acc:acc, total:total, mods:mods, pauses:pauses };
 }
 function ptCancel(){ state.paperTimer = null; saveNow(); route(); }
 /* 某模块做完时先记一次成绩 */
@@ -2549,7 +2555,10 @@ function renderPapers(){
       '</div>';
   } else {
     var el = ptElapsed();
-    html += (t.paused ? '<div class="tiny" style="background:#fff8e6;border:1px solid #f0ddb4;border-radius:12px;padding:6px 10px;margin-bottom:8px;color:#a8811f">⏸ 已暂停，计时不再走</div>' : '') +
+    var livePause = (t.pauseSec || 0) + (t.pauseStart ? Math.round((Date.now() - t.pauseStart) / 1000) : 0);
+    html += ((t.pauseCount || 0) > 0
+      ? '<div class="tiny muted" style="margin-bottom:6px">⏸ 已暂停 ' + t.pauseCount + ' 次 · 累计 ' + fmtDur(livePause) + '</div>' : '') +
+      (t.paused ? '<div class="tiny" style="background:#fff8e6;border:1px solid #f0ddb4;border-radius:12px;padding:6px 10px;margin-bottom:8px;color:#a8811f">⏸ 已暂停，计时不再走</div>' : '') +
       '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">' +
       '<div><div class="mini">当前段：' + esc(t.seg) + '</div><div style="font-size:calc(var(--fs-h1) * 1.3);font-weight:800;font-variant-numeric:tabular-nums" id="ptClock">' + fmtDur(el.seg) + '</div></div>' +
       '<div><div class="mini">总用时</div><div style="font-size:calc(var(--fs-h1) * .9);font-weight:800;font-variant-numeric:tabular-nums" id="ptTotal">' + fmtDur(el.total) + '</div></div>' +
@@ -2588,6 +2597,7 @@ function renderPapers(){
       '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
       '<button class="btn sm primary" data-act="paper-collect" data-id="' + last.id + '">📥 收录最近 7 天答错的题</button>' +
       '<button class="btn sm" data-act="paper-wrongs" data-id="' + last.id + '">看本套错题</button></div>' +
+      (last.pauses && last.pauses.count ? '<div class="tiny muted" style="margin-top:6px">⏸ 这套暂停 ' + last.pauses.count + ' 次 · 累计 ' + Math.round(last.pauses.sec / 60) + ' 分钟</div>' : '') +
       '<div class="tiny muted" style="margin-top:8px">历史最好：' + paperScore(best).pct + ' 分（' + esc(best.date) + '）　｜　分值口径：常识0.5 言语0.8 判断0.8 资料1.0 数量0.8（常见估算，各机构略有差异）</div></div>';
 
     html += '<div class="card"><div class="card-head"><h2>📈 历次估分</h2><span class="tag">近 8 套</span></div><div class="bars">';
@@ -2631,7 +2641,7 @@ function renderPapers(){
     list.slice(0, 20).forEach(function(rec){
       var s = paperScore(rec), tl = paperTotals(rec);
       html += '<div class="row"><div class="txt"><b>' + esc(rec.name || '行测套卷') + '</b>' +
-        '<div class="m">' + esc(rec.date) + '　·　估分 ' + s.pct + '　·　' + tl.right + '/' + tl.count + '（' + Math.round(tl.rate * 100) + '%）　·　' + tl.min + ' 分钟</div></div>' +
+        '<div class="m">' + esc(rec.date) + '　·　估分 ' + s.pct + '　·　' + tl.right + '/' + tl.count + '（' + Math.round(tl.rate * 100) + '%）　·　' + tl.min + ' 分钟' + (rec.pauses && rec.pauses.count ? '　·　⏸' + rec.pauses.count + '次' : '') + '</div></div>' +
         '<div style="display:flex;gap:4px;flex:0 0 auto">' +
         '<button class="btn sm" data-act="paper-collect" data-id="' + rec.id + '" title="收录最近 7 天答错的题">📥 收录7天</button>' +
         '<button class="btn sm ghost" data-act="paper-wrongs" data-id="' + rec.id + '">本套 ' + state.wrong.filter(function(w){ return w.paperId === rec.id; }).length + '</button>' +
@@ -2646,8 +2656,11 @@ function fmtDur(sec){
   var m = Math.floor(sec / 60), s = sec % 60;
   return m + ':' + (s < 10 ? '0' + s : s);
 }
+var pendingPauses = null;
 function openPaperAdd(prefill){
   var pre = prefill || {};
+  var pz = pre.pauses || null;
+  pendingPauses = pz;
   var segAcc = pre.acc || {};
   var rows = PAPER_SEGS.map(function(sg, i){
     var m = (pre.mods || {})[sg.k] || {};
@@ -2663,6 +2676,7 @@ function openPaperAdd(prefill){
     '<div class="field"><label>套卷名称</label><input class="inp" id="pName" maxlength="30" value="' + esc(pre.name || '') + '" placeholder="例：2027国考副省级（第3套）"></div>' +
     rows +
     '<label class="tiny" style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="pStats" checked> 同步计入「每日统计」的做题数与时长</label>' +
+    (pz && pz.count ? '<div class="tiny" style="background:#fff8e6;border:1px solid #f0ddb4;border-radius:12px;padding:7px 10px;margin-top:8px;color:#a8811f">这套卷暂停了 ' + pz.count + ' 次，累计 ' + Math.round(pz.sec / 60) + ' 分钟，会一起存下来</div>' : '') +
     '<div class="modal-actions"><button class="btn ghost" data-act="modal-close">取消</button>' +
     '<button class="btn primary" data-act="paper-save">保存</button></div>'
   );
@@ -2697,7 +2711,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 06:00';
+var APP_BUILD = '2026-11-08 · 06:15';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -3445,7 +3459,7 @@ document.addEventListener('click', function(e){
   if(act === 'pt-cancel'){ ptCancel(); return; }
   if(act === 'pt-finish'){
     var fin = ptStop();
-    openPaperAdd({ acc:(fin || {}).acc || {}, mods:(fin || {}).mods || {}, name:'' });
+    openPaperAdd({ acc:(fin || {}).acc || {}, mods:(fin || {}).mods || {}, pauses:(fin || {}).pauses || null, name:'' });
     return;
   }
   if(act === 'wrong-filter'){ wrongFilter = t.getAttribute('data-id') || ''; route(); return; }
@@ -3459,6 +3473,7 @@ document.addEventListener('click', function(e){
   }
   if(act === 'paper-save'){
     var rec = { id:uid(), date:todayStr(), name:(($('#pName') || {}).value || '').trim() || '行测套卷', mods:{} };
+    if(pendingPauses) rec.pauses = pendingPauses;
     var sumCount = 0;
     PAPER_SEGS.forEach(function(sg, i){
       var c = parseInt((($('#pmCnt' + i) || {}).value) || '0', 10) || 0;
