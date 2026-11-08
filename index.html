@@ -2378,19 +2378,24 @@ function renderPapers(){
     html += '<div class="card"><div class="card-head"><h2>🧭 模块诊断（最近一次）</h2></div>';
     PAPER_SEGS.forEach(function(sg){
       var m = (last.mods || {})[sg.k] || {};
-      var rate = m.count ? m.right / m.count : 0;
+      var has = (m.count || 0) > 0;
+      var rate = has ? m.right / m.count : 0;
       var over = (m.min || 0) > sg.min;
       html += '<div style="margin-bottom:9px"><div class="tiny" style="display:flex;justify-content:space-between">' +
-        '<span>' + esc(sg.k) + '　<span class="mini">' + (m.right || 0) + '/' + (m.count || 0) + '　' + (m.min || 0) + '/' + sg.min + ' 分钟</span>' +
+        '<span>' + esc(sg.k) + '　<span class="mini">' + (has ? (m.right + '/' + m.count + '　' + (m.min || 0) + '/' + sg.min + ' 分钟') : '未做') + '</span>' +
         (over ? ' <span style="color:#ef7d6c">超时</span>' : '') + '</span>' +
-        '<span class="pct">' + Math.round(rate * 100) + '%</span></div>' +
-        '<div class="bar thin" style="margin-top:3px"><i style="width:' + Math.round(rate * 100) + '%"></i></div></div>';
+        '<span class="pct">' + (has ? Math.round(rate * 100) + '%' : '—') + '</span></div>' +
+        '<div class="bar thin" style="margin-top:3px"><i style="width:' + (has ? Math.round(rate * 100) : 0) + '%"></i></div></div>';
     });
-    var weakest = PAPER_SEGS.map(function(sg){
+    var done = PAPER_SEGS.map(function(sg){
       var m = (last.mods || {})[sg.k] || {};
-      return { k:sg.k, rate:m.count ? m.right / m.count : 1, over:(m.min || 0) > sg.min };
-    }).sort(function(a, b){ return a.rate - b.rate; })[0];
-    html += '<div class="mantra">先补：' + esc(weakest.k) + '（正确率最低' + (weakest.over ? '且超时' : '') + '）　' + esc(TYPE_ADVICE[weakest.k] || '') + '</div></div>';
+      return { k:sg.k, rate:(m.count ? m.right / m.count : null), over:(m.min || 0) > sg.min };
+    }).filter(function(x){ return x.rate !== null; }).sort(function(a, b){ return a.rate - b.rate; });
+    if(done.length){
+      var weakest = done[0];
+      html += '<div class="mantra">先补：' + esc(weakest.k) + '（正确率最低' + (weakest.over ? '且超时' : '') + '）　' + esc(TYPE_ADVICE[weakest.k] || '') + '</div>';
+    }
+    html += '</div>';
   } else {
     html += '<div class="card"><div class="empty"><span class="big">📄</span>还没有套卷记录<br><span class="tiny">按完整时间做一套，然后点「结束并录入成绩」</span></div></div>';
   }
@@ -2421,7 +2426,7 @@ function openPaperAdd(prefill){
     var m = (pre.mods || {})[sg.k] || {};
     var minv = m.min != null ? m.min : Math.round((segAcc[sg.k] || 0) / 60);
     return '<div class="grid c3" style="gap:6px;margin-bottom:7px;align-items:end">' +
-      '<div><div class="mini">' + esc(sg.k) + '（建议' + sg.min + '分）</div><input class="inp" id="pmCnt' + i + '" type="number" inputmode="numeric" min="0" placeholder="题数" value="' + (m.count != null ? m.count : '') + '"></div>' +
+      '<div><div class="mini">' + esc(sg.k) + ' 题数（建议' + sg.min + '分）</div><input class="inp" id="pmCnt' + i + '" type="number" inputmode="numeric" min="0" placeholder="题数" value="' + (m.count != null ? m.count : '') + '"></div>' +
       '<div><div class="mini">做对</div><input class="inp" id="pmRight' + i + '" type="number" inputmode="numeric" min="0" placeholder="正确" value="' + (m.right != null ? m.right : '') + '"></div>' +
       '<div><div class="mini">用时(分钟)</div><input class="inp" id="pmMin' + i + '" type="number" inputmode="numeric" min="0" value="' + (minv || '') + '"></div>' +
       '</div>';
@@ -2465,7 +2470,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 04:20';
+var APP_BUILD = '2026-11-08 · 04:30';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
