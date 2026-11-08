@@ -167,7 +167,7 @@ body.nav-collapsed #navTab{display:grid}
 /* ===== 主内容 ===== */
 #main{
   margin-left:var(--nav-w);
-  padding:20px 22px 60px;
+  padding:20px 22px 110px;
   transition:margin-left .28s cubic-bezier(.22,.61,.36,1);
   min-height:100vh;
 }
@@ -378,7 +378,7 @@ textarea.inp{min-height:72px;resize:vertical;line-height:1.6}
 @media(max-width:1024px){:root{--nav-w:170px}}
 @media(max-width:640px){
   :root{--nav-w:140px}
-  #main{padding:14px 10px 70px}
+  #main{padding:14px 10px 130px}
   .card{padding:16px 13px;border-radius:22px}
   .cd-card{padding:20px 16px 18px;border-radius:24px}
   .nav-head{padding:14px 8px 8px 12px}
@@ -2697,7 +2697,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 05:50';
+var APP_BUILD = '2026-11-08 · 06:00';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
