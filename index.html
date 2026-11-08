@@ -2268,6 +2268,126 @@ function finishRedo(){
     '<div class="explain">' + (rate >= 80 ? '这轮很稳，本周可以把重心放到新题型上。' : (rate >= 50 ? '一半一半：错的这几道说明方法还没固化，明天再刷一遍同一批。' : '通过率偏低：先别加新题，把这几道的解析重写一遍再重做。')) + '</div>' +
     '<div class="modal-actions"><button class="btn primary" data-act="modal-close">好的</button></div>');
 }
+/* ================= PDF 套卷：导入 + 圈画 + 存错题 ================= */
+var pdfDoc = null, pdfPageNo = 1, pdfFileName = '', pdfStrokes = [], pdfDrawing = false;
+function loadPdfJs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  return new Promise(function(res, rej){
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+    s.onload = function(){
+      try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; }catch(e){}
+      res(window.pdfjsLib);
+    };
+    s.onerror = function(){ rej(new Error('PDF 渲染库加载失败（需要联网）')); };
+    document.head.appendChild(s);
+    setTimeout(function(){ if(!window.pdfjsLib) rej(new Error('PDF 渲染库加载超时')); }, 15000);
+  });
+}
+function openPdf(file){
+  if(!file) return;
+  pdfFileName = file.name || 'PDF';
+  var fr = new FileReader();
+  fr.onload = function(){
+    loadPdfJs().then(function(pdfjs){
+      return pdfjs.getDocument({ data:new Uint8Array(fr.result) }).promise;
+    }).then(function(doc){
+      pdfDoc = doc; pdfPageNo = 1; pdfStrokes = [];
+      openPdfViewer();
+      renderPdfPage(1);
+    }).catch(function(e){ toast(e.message || 'PDF 打开失败'); });
+  };
+  fr.readAsArrayBuffer(file);
+}
+function openPdfViewer(){
+  openModal(
+    '<h3 style="margin-bottom:6px">📄 ' + esc(pdfFileName) + '</h3>' +
+    '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">' +
+    '<button class="btn sm" data-act="pdf-prev">◀</button>' +
+    '<span class="tiny" id="pdfPageLabel">1 / 1</span>' +
+    '<button class="btn sm" data-act="pdf-next">▶</button>' +
+    '<button class="btn sm" data-act="pdf-undo">↩️ 撤销一笔</button>' +
+    '<button class="btn sm primary" data-act="pdf-save-wrong">✅ 圈进错题本</button>' +
+    '<span class="mini" style="margin-left:auto">用手指/鼠标在页面上直接圈</span></div>' +
+    '<div id="pdfStage" style="position:relative;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:auto;max-height:64vh">' +
+    '<canvas id="pdfCanvas" style="display:block;max-width:100%"></canvas>' +
+    '<canvas id="drawCanvas" style="position:absolute;left:0;top:0;touch-action:none;cursor:crosshair"></canvas></div>' +
+    '<div class="modal-actions"><button class="btn ghost" data-act="modal-close">关闭</button></div>',
+    function(box){
+      box.style.maxWidth = '980px';
+      var dc = document.getElementById('drawCanvas');
+      if(!dc) return;
+      var drawing = false;
+      function pos(e){
+        var r = dc.getBoundingClientRect();
+        var p = e.touches ? e.touches[0] : e;
+        return { x:(p.clientX - r.left) * (dc.width / r.width), y:(p.clientY - r.top) * (dc.height / r.height) };
+      }
+      function down(e){ e.preventDefault(); drawing = true; pdfStrokes.push([pos(e)]); drawStrokes(); }
+      function move(e){ if(!drawing) return; e.preventDefault(); pdfStrokes[pdfStrokes.length - 1].push(pos(e)); drawStrokes(); }
+      function up(){ drawing = false; }
+      dc.addEventListener('pointerdown', down);
+      dc.addEventListener('pointermove', move);
+      dc.addEventListener('pointerup', up);
+      dc.addEventListener('pointercancel', up);
+      dc.addEventListener('pointerleave', up);
+    }
+  );
+}
+function drawStrokes(){
+  var dc = document.getElementById('drawCanvas');
+  if(!dc) return;
+  var ctx = dc.getContext('2d');
+  ctx.clearRect(0, 0, dc.width, dc.height);
+  ctx.lineWidth = Math.max(2, dc.width / 320);
+  ctx.strokeStyle = '#e8453c';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  pdfStrokes.forEach(function(stroke){
+    if(stroke.length < 2){ return; }
+    ctx.beginPath();
+    ctx.moveTo(stroke[0].x, stroke[0].y);
+    for(var i = 1; i < stroke.length; i++) ctx.lineTo(stroke[i].x, stroke[i].y);
+    ctx.stroke();
+  });
+}
+function renderPdfPage(num){
+  if(!pdfDoc) return;
+  pdfDoc.getPage(num).then(function(page){
+    var stage = document.getElementById('pdfStage');
+    var maxW = (stage ? stage.clientWidth : 900) - 2;
+    var base = page.getViewport({ scale:1 });
+    var scale = Math.min(2.5, maxW / base.width);
+    var vp = page.getViewport({ scale:scale });
+    var cv = document.getElementById('pdfCanvas'), dc = document.getElementById('drawCanvas');
+    if(!cv || !dc) return;
+    cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
+    dc.width = cv.width; dc.height = cv.height;
+    dc.style.width = cv.width + 'px'; dc.style.height = cv.height + 'px';
+    page.render({ canvasContext:cv.getContext('2d'), viewport:vp }).promise.then(function(){
+      var lbl = document.getElementById('pdfPageLabel');
+      if(lbl) lbl.textContent = num + ' / ' + pdfDoc.numPages;
+    });
+    pdfStrokes = []; drawStrokes();
+  });
+}
+function pdfSaveWrong(){
+  var cv = document.getElementById('pdfCanvas'), dc = document.getElementById('drawCanvas');
+  if(!cv) return;
+  var mix = document.createElement('canvas');
+  mix.width = cv.width; mix.height = cv.height;
+  var ctx = mix.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, mix.width, mix.height);
+  ctx.drawImage(cv, 0, 0);
+  if(dc) ctx.drawImage(dc, 0, 0);
+  var shot = mix.toDataURL('image/jpeg', 0.82);
+  closeModal();
+  openWrongAdd('资料分析', 'PDF 第 ' + pdfPageNo + ' 页错题', {
+    images:[shot],
+    note:'来自 ' + pdfFileName + ' 第 ' + pdfPageNo + ' 页'
+  });
+}
+
 /* ================= 套卷练习 ================= */
 const PAPER_SEGS = [
   { k:'常识', min:8,  w:0.5 },
@@ -2322,10 +2442,55 @@ function ptStop(){
   return { acc:acc, total:total };
 }
 function ptCancel(){ state.paperTimer = null; saveNow(); route(); }
+/* 把今天的答错题收录成"本套错题" */
+function collectPaperWrongs(paperId, silent){
+  var day = todayStr(), added = 0;
+  var log = state.quizLog || {};
+  Object.keys(log).forEach(function(qid){
+    var r = log[qid];
+    if(!r || r.date !== day || r.ok !== false) return;
+    var title = (r.stem || '').trim().slice(0, 40) || '今日错题';
+    var dup = state.wrong.filter(function(w){ return w.paperId === paperId && w.title === title; })[0];
+    if(dup) return;
+    state.wrong.push({
+      id:uid(), title:title, cat:r.cat || '资料分析', type:'',
+      reasons:[], date:day, note:(r.exp || '').slice(0, 120),
+      images:[], transcript:'', mastered:false, paperId:paperId
+    });
+    added++;
+  });
+  // 今天手动记的、还没归组的错题也一起归到这套
+  state.wrong.forEach(function(w){
+    if(!w.paperId && w.date === day) { w.paperId = paperId; }
+  });
+  saveNow();
+  if(!silent) toast(added ? ('已收录 ' + added + ' 题到本套错题') : '没有新的今日错题可收录');
+  return added;
+}
+function paperName(id){
+  var p = (state.papers || []).filter(function(x){ return x.id === id; })[0];
+  return p ? (p.name || '行测套卷') : '';
+}
+function openPaperWrongs(pid){
+  var items = state.wrong.filter(function(w){ return w.paperId === pid; });
+  openModal('<h3>📥 本套错题</h3><div class="desc">' + esc(paperName(pid)) + '　共 ' + items.length + ' 题</div>' +
+    (items.length ? '<div style="max-height:46vh;overflow:auto">' + items.map(function(w, i){
+      return '<div class="row"><div class="txt"><b>' + esc(w.title) + '</b>' +
+        '<div class="m">' + esc(w.cat) + (w.type ? ' · ' + esc(w.type) : '') + (w.mastered ? ' · 已攻克' : '') + '</div></div></div>';
+    }).join('') + '</div>' : '<div class="empty" style="padding:14px">这套还没收录错题</div>') +
+    '<div class="modal-actions"><button class="btn ghost" data-act="modal-close">关闭</button></div>');
+}
 function renderPapers(){
   var list = (state.papers || []).slice().sort(function(a, b){ return a.date < b.date ? 1 : -1; });
   var html = pageHead('📝', '套卷练习', '');
   var t = ptNow();
+
+  /* PDF 套卷 */
+  html += '<div class="card"><div class="card-head"><h2>📄 PDF 套卷</h2><span class="tag">可圈画</span>' +
+    '<span class="right"><button class="btn sm primary" data-act="pdf-open">打开 PDF</button></span></div>' +
+    '<div class="tiny muted" style="line-height:1.8">导入套卷 PDF，用手指/鼠标在页面上直接圈出错题 → 「圈进错题本」会把<strong>带圈的整页截图</strong>存成一道错题（自动记页码）。<br>' +
+    '首次打开需要联网加载 PDF 渲染库（约 1MB，之后走缓存）；PDF 本身不上传、不落盘。</div>' +
+    '<input type="file" id="pdfFile" accept="application/pdf,.pdf" style="display:none"></div>';
 
   /* 计时卡 */
   html += '<div class="card"><div class="card-head"><h2>⏱ 分段计时</h2><span class="tag">按模块计时</span>' +
@@ -2364,6 +2529,9 @@ function renderPapers(){
       '<div class="stat"><div class="k">估分</div><div class="v">' + sl.pct + '<small>/100</small></div></div>' +
       '<div class="stat"><div class="k">总正确率</div><div class="v">' + Math.round(tl.rate * 100) + '<small>%</small></div></div>' +
       '<div class="stat"><div class="k">总用时</div><div class="v">' + tl.min + '<small>分钟</small></div></div></div>' +
+      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
+      '<button class="btn sm primary" data-act="paper-collect" data-id="' + last.id + '">📥 把今天答错的题收进本套</button>' +
+      '<button class="btn sm" data-act="paper-wrongs" data-id="' + last.id + '">看本套错题</button></div>' +
       '<div class="tiny muted" style="margin-top:8px">历史最好：' + paperScore(best).pct + ' 分（' + esc(best.date) + '）　｜　分值口径：常识0.5 言语0.8 判断0.8 资料1.0 数量0.8（常见估算，各机构略有差异）</div></div>';
 
     html += '<div class="card"><div class="card-head"><h2>📈 历次估分</h2><span class="tag">近 8 套</span></div><div class="bars">';
@@ -2408,7 +2576,10 @@ function renderPapers(){
       var s = paperScore(rec), tl = paperTotals(rec);
       html += '<div class="row"><div class="txt"><b>' + esc(rec.name || '行测套卷') + '</b>' +
         '<div class="m">' + esc(rec.date) + '　·　估分 ' + s.pct + '　·　' + tl.right + '/' + tl.count + '（' + Math.round(tl.rate * 100) + '%）　·　' + tl.min + ' 分钟</div></div>' +
-        '<button class="del" data-act="paper-del" data-id="' + rec.id + '">✕</button></div>';
+        '<div style="display:flex;gap:4px;flex:0 0 auto">' +
+        '<button class="btn sm" data-act="paper-collect" data-id="' + rec.id + '">📥 收录</button>' +
+        '<button class="btn sm ghost" data-act="paper-wrongs" data-id="' + rec.id + '">本套 ' + state.wrong.filter(function(w){ return w.paperId === rec.id; }).length + '</button>' +
+        '<button class="del" data-act="paper-del" data-id="' + rec.id + '">✕</button></div></div>';
     });
     html += '</div>';
   }
@@ -2470,7 +2641,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 04:30';
+var APP_BUILD = '2026-11-08 · 05:05';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -2577,8 +2748,11 @@ function maybeAutoWeeklyPush(){
   setTimeout(function(){ feishuPush(rep.text); }, 2200);
 }
 
+var wrongFilter = '';
 function renderWrong(){
-  var list = state.wrong.slice().sort(function(a, b){ return a.date < b.date ? 1 : -1; });
+  var all = state.wrong.slice().sort(function(a, b){ return a.date < b.date ? 1 : -1; });
+  var list = wrongFilter === 'none' ? all.filter(function(w){ return !w.paperId; })
+           : (wrongFilter ? all.filter(function(w){ return w.paperId === wrongFilter; }) : all);
   var an = analyzeWeek();
   var html = pageHead('📕', '错题本', '');
 
@@ -2641,12 +2815,21 @@ function renderWrong(){
   html += '</div>';
 
   /* —— 列表 —— */
+  var paperGroups = {};
+  all.forEach(function(w){ if(w.paperId) paperGroups[w.paperId] = (paperGroups[w.paperId] || 0) + 1; });
+  var chips = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' +
+    '<button class="chip' + (wrongFilter === '' ? ' on' : '') + '" data-act="wrong-filter" data-id="">全部 ' + all.length + '</button>' +
+    (Object.keys(paperGroups).length ? '<button class="chip' + (wrongFilter === 'none' ? ' on' : '') + '" data-act="wrong-filter" data-id="none">未归组 ' + all.filter(function(w){ return !w.paperId; }).length + '</button>' : '') +
+    Object.keys(paperGroups).map(function(pid){
+      return '<button class="chip' + (wrongFilter === pid ? ' on' : '') + '" data-act="wrong-filter" data-id="' + esc(pid) + '">📄 ' + esc(paperName(pid) || '套卷') + ' ' + paperGroups[pid] + '</button>';
+    }).join('') + '</div>';
   html += '<div class="card"><div class="card-head"><h2>📕 我的错题</h2><span class="tag">' + list.length + ' 题</span>' +
     '<span class="right">' +
     '<button class="btn sm' + (list.length ? ' primary' : '') + '" data-act="wrong-export"' + (list.length ? '' : ' disabled') + '>📤 导出</button>' +
     '<button class="btn sm" data-act="wrong-add">＋ 记一题</button></span></div>';
+  html += chips;
   if(!list.length){
-    html += '<div class="empty"><span class="big">📭</span>错题本还是空的<br><span class="tiny">做题时点「收进错题本」，或在这里手动记录</span></div>';
+    html += '<div class="empty"><span class="big">📭</span>' + (all.length ? '这个分组下没有题' : '错题本还是空的') + '<br><span class="tiny">做题时点「收进错题本」，或在这里手动记录</span></div>';
   } else {
     var lastCat = '';
     list.forEach(function(w){
@@ -2660,7 +2843,8 @@ function renderWrong(){
         '<b style="font-size:var(--fs-body)">' + esc(w.title) + '</b>' +
         (w.type ? '<span class="cat-pill" style="background:#f0f5e6;color:#7a9440">' + esc(w.type) + '</span>' : '<span class="cat-pill" style="background:#fff2ef;color:#c9604f">未选题型</span>') +
         '<span class="mini">' + esc(w.date) + '</span>' +
-        (w.mastered ? '<span class="cat-pill" style="background:#e8f8f1;color:#3f9b78">已攻克</span>' : '') + '</div>' +
+        (w.mastered ? '<span class="cat-pill" style="background:#e8f8f1;color:#3f9b78">已攻克</span>' : '') +
+        (w.paperId ? '<span class="cat-pill" style="background:#fdf0e4;color:#b4803f">📄 ' + esc(paperName(w.paperId) || '套卷') + '</span>' : '') + '</div>' +
         ((w.reasons && w.reasons.length) ? '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">' +
           w.reasons.map(function(r){ return '<span class="chip on" style="cursor:default;font-size:calc(var(--fs-sm) - 2px)">' + esc(r) + '</span>'; }).join('') + '</div>' : '') +
         (w.note ? '<div class="tiny" style="margin-top:6px">📝 ' + esc(w.note) + '</div>' : '') +
@@ -2766,7 +2950,7 @@ var tmpReasons = [];
 function openWrongAdd(cat, title, opts){
   var o = opts || {};
   var edit = o.id ? state.wrong.filter(function(x){ return x.id === o.id; })[0] : null;
-  tmpImgs = edit ? (edit.images || []).slice() : [];
+  tmpImgs = edit ? (edit.images || []).slice() : (o.images || []).slice();
   tmpReasons = edit ? (edit.reasons || []).slice() : [];
   var curCat = edit ? edit.cat : (cat || '资料分析');
   var curType = edit ? (edit.type || '') : (o.type || '');
@@ -2804,7 +2988,7 @@ function openWrongAdd(cat, title, opts){
     '</details>' +
     '<div class="field"><label>错因（可多选）</label><div id="wReasons" style="display:flex;gap:6px;flex-wrap:wrap">' + chips + '</div>' +
     '<div class="tiny muted" style="margin-top:5px">选不准就选"蒙的"——周分析里会把它单独算一类</div></div>' +
-    '<div class="field"><label>个人备注（正确思路）</label><textarea class="inp" id="wNote" placeholder="例：公式应为 现期×r/(1+r)，我少除了 (1+r)">' + esc(edit ? (edit.note || '') : '') + '</textarea></div>' +
+    '<div class="field"><label>个人备注（正确思路）</label><textarea class="inp" id="wNote" placeholder="例：公式应为 现期×r/(1+r)，我少除了 (1+r)">' + esc(edit ? (edit.note || '') : (o.note || '')) + '</textarea></div>' +
     '<div class="field"><label>语音转文字 <button class="btn sm" data-act="voice" data-target="wVoice" type="button">🎤 说一段</button></label>' +
     '<textarea class="inp" id="wVoice" placeholder="点🎤说话，识别结果填这里">' + esc(edit ? (edit.transcript || '') : '') + '</textarea></div>' +
     '<div class="field"><label>题目图片（可多选，自动压缩）</label>' +
@@ -3152,7 +3336,17 @@ document.addEventListener('click', function(e){
     var chosen = parseInt(t.getAttribute('data-i'), 10);
     var cat = t.getAttribute('data-cat');
     var correct = chosen === rec.q.ans;
-    state.quizLog[qid] = { ans:chosen, date:todayStr(), mod:rec.mod };
+    state.quizLog[qid] = {
+      ans:chosen, date:todayStr(), mod:rec.mod, cat:cat,
+      ok:correct, stem:String(rec.q.stem || '').slice(0, 80), exp:String(rec.q.exp || '').slice(0, 160)
+    };
+    // 只保留最近 30 天的答题记录，避免无限膨胀
+    (function(){
+      var cut = dstr(new Date(Date.now() - 30 * 86400000));
+      Object.keys(state.quizLog).forEach(function(k){
+        if((state.quizLog[k].date || '') < cut) delete state.quizLog[k];
+      });
+    })();
     logAnswer(cat, correct);
     save(); rerender();
     toast(correct ? '✅ 答对了' : '❌ 答错了，看下面解析');
@@ -3170,6 +3364,11 @@ document.addEventListener('click', function(e){
     return;
   }
   if(act === 'wrong-add'){ openWrongAdd('', ''); return; }
+  if(act === 'pdf-open'){ var pf = $('#pdfFile'); if(pf) pf.click(); return; }
+  if(act === 'pdf-prev'){ if(pdfDoc && pdfPageNo > 1){ pdfPageNo--; renderPdfPage(pdfPageNo); } return; }
+  if(act === 'pdf-next'){ if(pdfDoc && pdfPageNo < pdfDoc.numPages){ pdfPageNo++; renderPdfPage(pdfPageNo); } return; }
+  if(act === 'pdf-undo'){ pdfStrokes.pop(); drawStrokes(); return; }
+  if(act === 'pdf-save-wrong'){ pdfSaveWrong(); return; }
   if(act === 'pt-start'){ ptStart(t.getAttribute('data-seg')); return; }
   if(act === 'pt-switch'){ ptSwitch(t.getAttribute('data-seg')); return; }
   if(act === 'pt-cancel'){ ptCancel(); return; }
@@ -3178,7 +3377,10 @@ document.addEventListener('click', function(e){
     openPaperAdd({ acc:(fin || {}).acc || {}, name:'' });
     return;
   }
+  if(act === 'wrong-filter'){ wrongFilter = t.getAttribute('data-id') || ''; route(); return; }
   if(act === 'paper-add'){ openPaperAdd({}); return; }
+  if(act === 'paper-collect'){ collectPaperWrongs(t.getAttribute('data-id')); route(); return; }
+  if(act === 'paper-wrongs'){ openPaperWrongs(t.getAttribute('data-id')); return; }
   if(act === 'paper-del'){
     state.papers = (state.papers || []).filter(function(x){ return x.id !== t.getAttribute('data-id'); });
     saveNow(); route(); toast('已删除');
@@ -4030,6 +4232,11 @@ function loadSnapList(){
 
 document.addEventListener('change', function(e){
   if(e.target && e.target.id === 'skillFile'){ importSkillFiles(e.target.files, false); }
+  if(e.target && e.target.id === 'pdfFile'){
+    var pf2 = e.target.files && e.target.files[0];
+    if(pf2) openPdf(pf2);
+    return;
+  }
   if(e.target && e.target.id === 'skillDir'){
     if(e.target.files && e.target.files.length) importSkillFiles(e.target.files, true);
     else toast('没读到文件夹内容，请改点「📄 选文件」多选一次');
