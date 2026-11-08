@@ -2415,28 +2415,44 @@ function paperTotals(rec){
   return { count:c, right:r, min:min, rate:c ? r / c : 0 };
 }
 function ptNow(){ return state.paperTimer && state.paperTimer.on ? state.paperTimer : null; }
+function ptSinceSegStart(){
+  var t = ptNow();
+  if(!t || t.paused || !t.segStart) return 0;
+  return Math.floor((Date.now() - t.segStart) / 1000);
+}
 function ptElapsed(){
   var t = ptNow(); if(!t) return { total:0, seg:0 };
-  var now = Date.now(), cur = Math.floor((now - t.segStart) / 1000);
-  return { total:t.accTotal + cur, seg:cur };
+  var cur = ptSinceSegStart();
+  return { total:(t.accTotal || 0) + cur, seg:(t.segAcc[t.seg] || 0) + cur };
 }
 function ptStart(seg){
-  state.paperTimer = { on:true, seg:seg || '常识', segStart:Date.now(), accTotal:0, segAcc:{}, mods:{} };
+  state.paperTimer = { on:true, seg:seg || '常识', segStart:Date.now(), accTotal:0, segAcc:{}, mods:{}, paused:false };
   saveNow(); route(); toast('⏱ 开始计时：' + (seg || '常识'));
 }
 function ptSwitch(seg){
   var t = ptNow(); if(!t) return;
-  var el = Math.floor((Date.now() - t.segStart) / 1000);
-  t.segAcc[t.seg] = (t.segAcc[t.seg] || 0) + el;
-  t.accTotal += el;
-  t.seg = seg; t.segStart = Date.now();
+  var el = ptSinceSegStart();
+  if(el){ t.segAcc[t.seg] = (t.segAcc[t.seg] || 0) + el; t.accTotal = (t.accTotal || 0) + el; }
+  t.seg = seg;
+  t.segStart = t.paused ? null : Date.now();
   saveNow(); route();
+}
+function ptPause(){
+  var t = ptNow(); if(!t || t.paused) return;
+  var el = ptSinceSegStart();
+  if(el){ t.segAcc[t.seg] = (t.segAcc[t.seg] || 0) + el; t.accTotal = (t.accTotal || 0) + el; }
+  t.paused = true; t.segStart = null;
+  saveNow(); route(); toast('⏸ 已暂停');
+}
+function ptResume(){
+  var t = ptNow(); if(!t || !t.paused) return;
+  t.paused = false; t.segStart = Date.now();
+  saveNow(); route(); toast('▶️ 继续计时');
 }
 function ptStop(){
   var t = ptNow(); if(!t) return null;
-  var el = Math.floor((Date.now() - t.segStart) / 1000);
-  t.segAcc[t.seg] = (t.segAcc[t.seg] || 0) + el;
-  t.accTotal += el;
+  var el = ptSinceSegStart();
+  if(el){ t.segAcc[t.seg] = (t.segAcc[t.seg] || 0) + el; t.accTotal = (t.accTotal || 0) + el; }
   var acc = Object.assign({}, t.segAcc), total = t.accTotal, mods = Object.assign({}, t.mods || {});
   if(acc[t.seg] != null) acc[t.seg] = acc[t.seg] + 0;
   state.paperTimer = null; saveNow();
@@ -2447,7 +2463,7 @@ function ptCancel(){ state.paperTimer = null; saveNow(); route(); }
 function ptSegUsedSec(seg){
   var t = ptNow(); if(!t) return 0;
   var used = t.segAcc[seg] || 0;
-  if(seg === t.seg) used += Math.floor((Date.now() - t.segStart) / 1000);
+  if(seg === t.seg) used += ptSinceSegStart();
   return used;
 }
 function ptSegEntry(seg){
@@ -2533,13 +2549,14 @@ function renderPapers(){
       '</div>';
   } else {
     var el = ptElapsed();
-    html += '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">' +
+    html += (t.paused ? '<div class="tiny" style="background:#fff8e6;border:1px solid #f0ddb4;border-radius:12px;padding:6px 10px;margin-bottom:8px;color:#a8811f">⏸ 已暂停，计时不再走</div>' : '') +
+      '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">' +
       '<div><div class="mini">当前段：' + esc(t.seg) + '</div><div style="font-size:calc(var(--fs-h1) * 1.3);font-weight:800;font-variant-numeric:tabular-nums" id="ptClock">' + fmtDur(el.seg) + '</div></div>' +
       '<div><div class="mini">总用时</div><div style="font-size:calc(var(--fs-h1) * .9);font-weight:800;font-variant-numeric:tabular-nums" id="ptTotal">' + fmtDur(el.total) + '</div></div>' +
       '<div class="mini">建议：' + (paperSegOf(t.seg) ? paperSegOf(t.seg).min + ' 分钟' : '—') + '</div></div>' +
       '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">' +
       PAPER_SEGS.map(function(s){
-        var used = (t.segAcc[s.k] || 0) + (s.k === t.seg ? Math.floor((Date.now() - t.segStart) / 1000) : 0);
+        var used = (t.segAcc[s.k] || 0) + (s.k === t.seg ? ptSinceSegStart() : 0);
         var over = used > s.min * 60;
         var done = (t.mods || {})[s.k];
         return '<button class="btn sm' + (s.k === t.seg ? ' primary' : '') + '" data-act="pt-switch" data-seg="' + s.k + '">' +
@@ -2548,6 +2565,9 @@ function renderPapers(){
       }).join('') + '</div>' +
       '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
       '<button class="btn" data-act="pt-seg-entry" data-seg="' + esc(t.seg) + '">✔ 本模块做完，先记成绩</button>' +
+      (t.paused
+        ? '<button class="btn primary" data-act="pt-resume">▶️ 继续计时</button>'
+        : '<button class="btn" data-act="pt-pause">⏸ 暂停</button>') +
       '<span class="tiny muted" style="align-self:center">整卷做完再统一保存</span></div>' +
       '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
       '<button class="btn primary" data-act="pt-finish">✅ 全部完成，统一录入成绩</button>' +
@@ -2677,7 +2697,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 05:35';
+var APP_BUILD = '2026-11-08 · 05:50';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -3407,6 +3427,8 @@ document.addEventListener('click', function(e){
   if(act === 'pdf-save-wrong'){ pdfSaveWrong(); return; }
   if(act === 'pt-start'){ ptStart(t.getAttribute('data-seg')); return; }
   if(act === 'pt-switch'){ ptSwitch(t.getAttribute('data-seg')); return; }
+  if(act === 'pt-pause'){ ptPause(); return; }
+  if(act === 'pt-resume'){ ptResume(); return; }
   if(act === 'pt-seg-entry'){ ptSegEntry(t.getAttribute('data-seg')); return; }
   if(act === 'pt-seg-save'){
     var segk = t.getAttribute('data-seg');
@@ -4373,7 +4395,7 @@ setInterval(autoSyncTick, SYNC_EVERY_MS);
 /* 套卷计时：只在套卷页刷新显示 */
 setInterval(function(){
   var t = ptNow();
-  if(!t) return;
+  if(!t || t.paused) return;
   var el = ptElapsed();
   var c = document.getElementById('ptClock'), tt = document.getElementById('ptTotal');
   if(c) c.textContent = fmtDur(el.seg);
