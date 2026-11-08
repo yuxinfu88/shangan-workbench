@@ -2421,7 +2421,7 @@ function ptElapsed(){
   return { total:t.accTotal + cur, seg:cur };
 }
 function ptStart(seg){
-  state.paperTimer = { on:true, seg:seg || '常识', segStart:Date.now(), accTotal:0, segAcc:{} };
+  state.paperTimer = { on:true, seg:seg || '常识', segStart:Date.now(), accTotal:0, segAcc:{}, mods:{} };
   saveNow(); route(); toast('⏱ 开始计时：' + (seg || '常识'));
 }
 function ptSwitch(seg){
@@ -2437,11 +2437,31 @@ function ptStop(){
   var el = Math.floor((Date.now() - t.segStart) / 1000);
   t.segAcc[t.seg] = (t.segAcc[t.seg] || 0) + el;
   t.accTotal += el;
-  var acc = t.segAcc, total = t.accTotal;
+  var acc = Object.assign({}, t.segAcc), total = t.accTotal, mods = Object.assign({}, t.mods || {});
+  if(acc[t.seg] != null) acc[t.seg] = acc[t.seg] + 0;
   state.paperTimer = null; saveNow();
-  return { acc:acc, total:total };
+  return { acc:acc, total:total, mods:mods };
 }
 function ptCancel(){ state.paperTimer = null; saveNow(); route(); }
+/* 某模块做完时先记一次成绩 */
+function ptSegUsedSec(seg){
+  var t = ptNow(); if(!t) return 0;
+  var used = t.segAcc[seg] || 0;
+  if(seg === t.seg) used += Math.floor((Date.now() - t.segStart) / 1000);
+  return used;
+}
+function ptSegEntry(seg){
+  var t = ptNow(); if(!t) return;
+  var cur = (t.mods || {})[seg] || {};
+  var usedMin = Math.max(0, Math.round(ptSegUsedSec(seg) / 60));
+  openModal('<h3>✔ ' + esc(seg) + ' 做完了</h3>' +
+    '<div class="desc">只填题数和做对数，整卷做完后再统一保存</div>' +
+    '<div class="inp-row"><div class="field"><label>题数</label><input class="inp" id="peCnt" type="number" inputmode="numeric" min="0" value="' + (cur.count != null ? cur.count : '') + '"></div>' +
+    '<div class="field"><label>做对</label><input class="inp" id="peRight" type="number" inputmode="numeric" min="0" value="' + (cur.right != null ? cur.right : '') + '"></div>' +
+    '<div class="field"><label>用时(分钟)</label><input class="inp" id="peMin" type="number" inputmode="numeric" min="0" value="' + (cur.min != null ? cur.min : usedMin) + '"></div></div>' +
+    '<div class="modal-actions"><button class="btn ghost" data-act="modal-close">取消</button>' +
+    '<button class="btn primary" data-act="pt-seg-save" data-seg="' + esc(seg) + '">记录这模块</button></div>');
+}
 /* 把今天的答错题收录成"本套错题" */
 function collectPaperWrongs(paperId, silent, days){
   var span = days || 7;
@@ -2521,11 +2541,16 @@ function renderPapers(){
       PAPER_SEGS.map(function(s){
         var used = (t.segAcc[s.k] || 0) + (s.k === t.seg ? Math.floor((Date.now() - t.segStart) / 1000) : 0);
         var over = used > s.min * 60;
+        var done = (t.mods || {})[s.k];
         return '<button class="btn sm' + (s.k === t.seg ? ' primary' : '') + '" data-act="pt-switch" data-seg="' + s.k + '">' +
-          esc(s.k) + ' ' + fmtDur(used) + (over ? ' ⚠️' : '') + '</button>';
+          (done ? '✔ ' : '') + esc(s.k) + ' ' + fmtDur(used) + (over ? ' ⚠️' : '') +
+          (done ? '　' + done.right + '/' + done.count : '') + '</button>';
       }).join('') + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
+      '<button class="btn" data-act="pt-seg-entry" data-seg="' + esc(t.seg) + '">✔ 本模块做完，先记成绩</button>' +
+      '<span class="tiny muted" style="align-self:center">整卷做完再统一保存</span></div>' +
       '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
-      '<button class="btn primary" data-act="pt-finish">✅ 结束并录入成绩</button>' +
+      '<button class="btn primary" data-act="pt-finish">✅ 全部完成，统一录入成绩</button>' +
       '<button class="btn ghost" data-act="pt-cancel">放弃这次</button></div>';
   }
   html += '</div>';
@@ -2652,7 +2677,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 05:20';
+var APP_BUILD = '2026-11-08 · 05:35';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -3382,10 +3407,23 @@ document.addEventListener('click', function(e){
   if(act === 'pdf-save-wrong'){ pdfSaveWrong(); return; }
   if(act === 'pt-start'){ ptStart(t.getAttribute('data-seg')); return; }
   if(act === 'pt-switch'){ ptSwitch(t.getAttribute('data-seg')); return; }
+  if(act === 'pt-seg-entry'){ ptSegEntry(t.getAttribute('data-seg')); return; }
+  if(act === 'pt-seg-save'){
+    var segk = t.getAttribute('data-seg');
+    var c = parseInt((($('#peCnt') || {}).value) || '0', 10) || 0;
+    var rr = parseInt((($('#peRight') || {}).value) || '0', 10) || 0;
+    var mm = parseInt((($('#peMin') || {}).value) || '0', 10) || 0;
+    if(rr > c) rr = c;
+    if(!c){ toast('题数不能为 0'); return; }
+    var tt = ptNow();
+    if(tt){ tt.mods = tt.mods || {}; tt.mods[segk] = { count:c, right:rr, min:mm }; saveNow(); }
+    closeModal(); route(); toast('已记录 ' + segk + '：' + rr + '/' + c);
+    return;
+  }
   if(act === 'pt-cancel'){ ptCancel(); return; }
   if(act === 'pt-finish'){
     var fin = ptStop();
-    openPaperAdd({ acc:(fin || {}).acc || {}, name:'' });
+    openPaperAdd({ acc:(fin || {}).acc || {}, mods:(fin || {}).mods || {}, name:'' });
     return;
   }
   if(act === 'wrong-filter'){ wrongFilter = t.getAttribute('data-id') || ''; route(); return; }
