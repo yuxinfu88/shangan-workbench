@@ -743,6 +743,7 @@ const NAV_GROUPS = [
     {key:'logic', icon:'🧩', label:'逻辑判断'},
     {key:'math', icon:'➗', label:'数量关系'},
     {key:'data', icon:'📊', label:'资料分析'},
+    {key:'papers', icon:'📝', label:'套卷练习'},
     {key:'stats', icon:'📈', label:'每日统计'}
   ]},
   {name:'老师心法', items:[
@@ -807,6 +808,8 @@ const DEF_STATE = {
   skillEdit:{},
   skillDel:[],
   redoLog:[],
+  papers:[],
+  paperTimer:null,
   _skillsVer:1,
   archiveOffset:0,
   settings:{ font:'m', pinned:true, sync:{ url:'', user:'', pass:'', lastSync:'', connected:false },
@@ -2265,6 +2268,173 @@ function finishRedo(){
     '<div class="explain">' + (rate >= 80 ? '这轮很稳，本周可以把重心放到新题型上。' : (rate >= 50 ? '一半一半：错的这几道说明方法还没固化，明天再刷一遍同一批。' : '通过率偏低：先别加新题，把这几道的解析重写一遍再重做。')) + '</div>' +
     '<div class="modal-actions"><button class="btn primary" data-act="modal-close">好的</button></div>');
 }
+/* ================= 套卷练习 ================= */
+const PAPER_SEGS = [
+  { k:'常识', min:8,  w:0.5 },
+  { k:'言语理解', min:30, w:0.8 },
+  { k:'逻辑判断', min:35, w:0.8 },
+  { k:'资料分析', min:25, w:1.0 },
+  { k:'数量关系', min:10, w:0.8 }
+];
+function paperSegOf(cat){ return PAPER_SEGS.filter(function(s){ return s.k === cat; })[0] || null; }
+function paperScore(rec){
+  var got = 0, full = 0;
+  PAPER_SEGS.forEach(function(s){
+    var m = (rec.mods || {})[s.k] || {};
+    got += (m.right || 0) * s.w;
+    full += (m.count || 0) * s.w;
+  });
+  return { got:Math.round(got * 10) / 10, full:Math.round(full * 10) / 10, pct:full ? Math.round(got / full * 1000) / 10 : 0 };
+}
+function paperTotals(rec){
+  var c = 0, r = 0, min = 0;
+  PAPER_SEGS.forEach(function(s){
+    var m = (rec.mods || {})[s.k] || {};
+    c += m.count || 0; r += m.right || 0; min += m.min || 0;
+  });
+  return { count:c, right:r, min:min, rate:c ? r / c : 0 };
+}
+function ptNow(){ return state.paperTimer && state.paperTimer.on ? state.paperTimer : null; }
+function ptElapsed(){
+  var t = ptNow(); if(!t) return { total:0, seg:0 };
+  var now = Date.now(), cur = Math.floor((now - t.segStart) / 1000);
+  return { total:t.accTotal + cur, seg:cur };
+}
+function ptStart(seg){
+  state.paperTimer = { on:true, seg:seg || '常识', segStart:Date.now(), accTotal:0, segAcc:{} };
+  saveNow(); route(); toast('⏱ 开始计时：' + (seg || '常识'));
+}
+function ptSwitch(seg){
+  var t = ptNow(); if(!t) return;
+  var el = Math.floor((Date.now() - t.segStart) / 1000);
+  t.segAcc[t.seg] = (t.segAcc[t.seg] || 0) + el;
+  t.accTotal += el;
+  t.seg = seg; t.segStart = Date.now();
+  saveNow(); route();
+}
+function ptStop(){
+  var t = ptNow(); if(!t) return null;
+  var el = Math.floor((Date.now() - t.segStart) / 1000);
+  t.segAcc[t.seg] = (t.segAcc[t.seg] || 0) + el;
+  t.accTotal += el;
+  var acc = t.segAcc, total = t.accTotal;
+  state.paperTimer = null; saveNow();
+  return { acc:acc, total:total };
+}
+function ptCancel(){ state.paperTimer = null; saveNow(); route(); }
+function renderPapers(){
+  var list = (state.papers || []).slice().sort(function(a, b){ return a.date < b.date ? 1 : -1; });
+  var html = pageHead('📝', '套卷练习', '');
+  var t = ptNow();
+
+  /* 计时卡 */
+  html += '<div class="card"><div class="card-head"><h2>⏱ 分段计时</h2><span class="tag">按模块计时</span>' +
+    '<span class="right tiny muted">建议 120 分钟</span></div>';
+  if(!t){
+    html += '<div class="tiny muted" style="line-height:1.8">开始后每切一个模块就点对应按钮，用时自动分段记录；做完点「结束」直接带进成绩录入。</div>' +
+      '<div style="margin-top:10px;display:flex;gap:7px;flex-wrap:wrap">' +
+      PAPER_SEGS.map(function(s){ return '<button class="btn sm" data-act="pt-start" data-seg="' + s.k + '">▶️ 从' + s.k + '开始</button>'; }).join('') +
+      '</div>';
+  } else {
+    var el = ptElapsed();
+    html += '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">' +
+      '<div><div class="mini">当前段：' + esc(t.seg) + '</div><div style="font-size:calc(var(--fs-h1) * 1.3);font-weight:800;font-variant-numeric:tabular-nums" id="ptClock">' + fmtDur(el.seg) + '</div></div>' +
+      '<div><div class="mini">总用时</div><div style="font-size:calc(var(--fs-h1) * .9);font-weight:800;font-variant-numeric:tabular-nums" id="ptTotal">' + fmtDur(el.total) + '</div></div>' +
+      '<div class="mini">建议：' + (paperSegOf(t.seg) ? paperSegOf(t.seg).min + ' 分钟' : '—') + '</div></div>' +
+      '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">' +
+      PAPER_SEGS.map(function(s){
+        var used = (t.segAcc[s.k] || 0) + (s.k === t.seg ? Math.floor((Date.now() - t.segStart) / 1000) : 0);
+        var over = used > s.min * 60;
+        return '<button class="btn sm' + (s.k === t.seg ? ' primary' : '') + '" data-act="pt-switch" data-seg="' + s.k + '">' +
+          esc(s.k) + ' ' + fmtDur(used) + (over ? ' ⚠️' : '') + '</button>';
+      }).join('') + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+      '<button class="btn primary" data-act="pt-finish">✅ 结束并录入成绩</button>' +
+      '<button class="btn ghost" data-act="pt-cancel">放弃这次</button></div>';
+  }
+  html += '</div>';
+
+  /* 最近成绩 */
+  if(list.length){
+    var last = list[0], sl = paperScore(last), tl = paperTotals(last);
+    var best = list.slice().sort(function(a, b){ return paperScore(b).pct - paperScore(a).pct; })[0];
+    html += '<div class="card"><div class="card-head"><h2>📊 最近一次</h2><span class="tag mint">' + esc(last.date) + '</span>' +
+      '<span class="right tiny muted">共 ' + list.length + ' 套</span></div>' +
+      '<div class="grid c3 statgrid">' +
+      '<div class="stat"><div class="k">估分</div><div class="v">' + sl.pct + '<small>/100</small></div></div>' +
+      '<div class="stat"><div class="k">总正确率</div><div class="v">' + Math.round(tl.rate * 100) + '<small>%</small></div></div>' +
+      '<div class="stat"><div class="k">总用时</div><div class="v">' + tl.min + '<small>分钟</small></div></div></div>' +
+      '<div class="tiny muted" style="margin-top:8px">历史最好：' + paperScore(best).pct + ' 分（' + esc(best.date) + '）　｜　分值口径：常识0.5 言语0.8 判断0.8 资料1.0 数量0.8（常见估算，各机构略有差异）</div></div>';
+
+    html += '<div class="card"><div class="card-head"><h2>📈 历次估分</h2><span class="tag">近 8 套</span></div><div class="bars">';
+    var recent = list.slice(0, 8).reverse();
+    var maxS = 100;
+    recent.forEach(function(rec){
+      var s = paperScore(rec).pct;
+      html += '<div class="col"><i style="height:' + Math.max(3, Math.round(s / maxS * 100)) + '%"></i><span>' + s + '</span></div>';
+    });
+    html += '</div><div class="tiny muted" style="margin-top:6px">' + recent.map(function(r){ return r.date.slice(5); }).join(' · ') + '</div></div>';
+
+    html += '<div class="card"><div class="card-head"><h2>🧭 模块诊断（最近一次）</h2></div>';
+    PAPER_SEGS.forEach(function(sg){
+      var m = (last.mods || {})[sg.k] || {};
+      var rate = m.count ? m.right / m.count : 0;
+      var over = (m.min || 0) > sg.min;
+      html += '<div style="margin-bottom:9px"><div class="tiny" style="display:flex;justify-content:space-between">' +
+        '<span>' + esc(sg.k) + '　<span class="mini">' + (m.right || 0) + '/' + (m.count || 0) + '　' + (m.min || 0) + '/' + sg.min + ' 分钟</span>' +
+        (over ? ' <span style="color:#ef7d6c">超时</span>' : '') + '</span>' +
+        '<span class="pct">' + Math.round(rate * 100) + '%</span></div>' +
+        '<div class="bar thin" style="margin-top:3px"><i style="width:' + Math.round(rate * 100) + '%"></i></div></div>';
+    });
+    var weakest = PAPER_SEGS.map(function(sg){
+      var m = (last.mods || {})[sg.k] || {};
+      return { k:sg.k, rate:m.count ? m.right / m.count : 1, over:(m.min || 0) > sg.min };
+    }).sort(function(a, b){ return a.rate - b.rate; })[0];
+    html += '<div class="mantra">先补：' + esc(weakest.k) + '（正确率最低' + (weakest.over ? '且超时' : '') + '）　' + esc(TYPE_ADVICE[weakest.k] || '') + '</div></div>';
+  } else {
+    html += '<div class="card"><div class="empty"><span class="big">📄</span>还没有套卷记录<br><span class="tiny">按完整时间做一套，然后点「结束并录入成绩」</span></div></div>';
+  }
+
+  /* 历史列表 */
+  if(list.length){
+    html += '<div class="card"><div class="card-head"><h2>🗂 套卷记录</h2><span class="tag">' + list.length + ' 套</span>' +
+      '<span class="right"><button class="btn sm primary" data-act="paper-add">＋ 手动录入</button></span></div>';
+    list.slice(0, 20).forEach(function(rec){
+      var s = paperScore(rec), tl = paperTotals(rec);
+      html += '<div class="row"><div class="txt"><b>' + esc(rec.name || '行测套卷') + '</b>' +
+        '<div class="m">' + esc(rec.date) + '　·　估分 ' + s.pct + '　·　' + tl.right + '/' + tl.count + '（' + Math.round(tl.rate * 100) + '%）　·　' + tl.min + ' 分钟</div></div>' +
+        '<button class="del" data-act="paper-del" data-id="' + rec.id + '">✕</button></div>';
+    });
+    html += '</div>';
+  }
+  return html;
+}
+function fmtDur(sec){
+  sec = Math.max(0, Math.round(sec || 0));
+  var m = Math.floor(sec / 60), s = sec % 60;
+  return m + ':' + (s < 10 ? '0' + s : s);
+}
+function openPaperAdd(prefill){
+  var pre = prefill || {};
+  var segAcc = pre.acc || {};
+  var rows = PAPER_SEGS.map(function(sg, i){
+    var m = (pre.mods || {})[sg.k] || {};
+    var minv = m.min != null ? m.min : Math.round((segAcc[sg.k] || 0) / 60);
+    return '<div class="grid c3" style="gap:6px;margin-bottom:7px;align-items:end">' +
+      '<div><div class="mini">' + esc(sg.k) + '（建议' + sg.min + '分）</div><input class="inp" id="pmCnt' + i + '" type="number" inputmode="numeric" min="0" placeholder="题数" value="' + (m.count != null ? m.count : '') + '"></div>' +
+      '<div><div class="mini">做对</div><input class="inp" id="pmRight' + i + '" type="number" inputmode="numeric" min="0" placeholder="正确" value="' + (m.right != null ? m.right : '') + '"></div>' +
+      '<div><div class="mini">用时(分钟)</div><input class="inp" id="pmMin' + i + '" type="number" inputmode="numeric" min="0" value="' + (minv || '') + '"></div>' +
+      '</div>';
+  }).join('');
+  openModal(
+    '<h3>📝 录入这套成绩</h3><div class="desc">只填题数和正确数就能算估分；用时留着会标超时</div>' +
+    '<div class="field"><label>套卷名称</label><input class="inp" id="pName" maxlength="30" value="' + esc(pre.name || '') + '" placeholder="例：2027国考副省级（第3套）"></div>' +
+    rows +
+    '<label class="tiny" style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="pStats" checked> 同步计入「每日统计」的做题数与时长</label>' +
+    '<div class="modal-actions"><button class="btn ghost" data-act="modal-close">取消</button>' +
+    '<button class="btn primary" data-act="paper-save">保存</button></div>'
+  );
+}
 /* ================= 页面：错题本 ================= */
 function weekStart(){
   var d = new Date(); var w = d.getDay() || 7; d.setDate(d.getDate() - w + 1);
@@ -2295,7 +2465,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 03:55';
+var APP_BUILD = '2026-11-08 · 04:20';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -2995,6 +3165,42 @@ document.addEventListener('click', function(e){
     return;
   }
   if(act === 'wrong-add'){ openWrongAdd('', ''); return; }
+  if(act === 'pt-start'){ ptStart(t.getAttribute('data-seg')); return; }
+  if(act === 'pt-switch'){ ptSwitch(t.getAttribute('data-seg')); return; }
+  if(act === 'pt-cancel'){ ptCancel(); return; }
+  if(act === 'pt-finish'){
+    var fin = ptStop();
+    openPaperAdd({ acc:(fin || {}).acc || {}, name:'' });
+    return;
+  }
+  if(act === 'paper-add'){ openPaperAdd({}); return; }
+  if(act === 'paper-del'){
+    state.papers = (state.papers || []).filter(function(x){ return x.id !== t.getAttribute('data-id'); });
+    saveNow(); route(); toast('已删除');
+    return;
+  }
+  if(act === 'paper-save'){
+    var rec = { id:uid(), date:todayStr(), name:(($('#pName') || {}).value || '').trim() || '行测套卷', mods:{} };
+    var sumCount = 0;
+    PAPER_SEGS.forEach(function(sg, i){
+      var c = parseInt((($('#pmCnt' + i) || {}).value) || '0', 10) || 0;
+      var r = parseInt((($('#pmRight' + i) || {}).value) || '0', 10) || 0;
+      var mn = parseInt((($('#pmMin' + i) || {}).value) || '0', 10) || 0;
+      if(r > c) r = c;
+      if(c > 0 || mn > 0){ rec.mods[sg.k] = { count:c, right:r, min:mn }; }
+      sumCount += c;
+      if(($('#pStats') || {}).checked && c > 0){
+        var st = statOf(todayStr(), sg.k);
+        st.count += c; st.right += r; st.min += mn;
+      }
+    });
+    if(!sumCount){ toast('至少填一个模块的题数'); return; }
+    state.papers = state.papers || [];
+    state.papers.push(rec);
+    saveNow(); closeModal(); route();
+    toast('已记录：估分 ' + paperScore(rec).pct);
+    return;
+  }
   if(act === 'redo-start'){ startRedo(); return; }
   if(act === 'redo-start-due'){
     redoQueue = dueRedoItems(99).filter(function(w){ return daysSince(w.date) >= 3; });
@@ -3634,6 +3840,13 @@ function mergeStates(local, remote){
 
   // 做题记录：并集
   out.quizLog = Object.assign({}, older.quizLog || {}, newer.quizLog || {});
+  var pap = {}, pord = [];
+  (older.papers || []).concat(newer.papers || []).forEach(function(p){
+    if(!p || !p.id) return;
+    if(!pap[p.id]) pord.push(p.id);
+    pap[p.id] = p;
+  });
+  out.papers = pord.map(function(k){ return pap[k]; });
   out.skillsDone = Object.assign({}, older.skillsDone || {}, newer.skillsDone || {});
   out.skillEdit = Object.assign({}, older.skillEdit || {}, newer.skillEdit || {});
   var delSet = {};
@@ -3863,7 +4076,7 @@ document.addEventListener('keydown', function(e){
 var PAGES = {
   'countdown':renderCountdown, 'plans':renderPlans, 'politics':renderPolitics, 'common':renderCommon,
   'verbal':renderVerbal, 'logic':renderLogic, 'math':renderMath, 'data':renderData, 'stats':renderStats,
-  'sl-small':renderSlSmall, 'sl-big':renderSlBig, 'wrong':renderWrong, 'skills':renderSkills, 'compare':renderCompare
+  'sl-small':renderSlSmall, 'sl-big':renderSlBig, 'wrong':renderWrong, 'skills':renderSkills, 'compare':renderCompare, 'papers':renderPapers
 };
 function route(){
   var key = (location.hash || '#countdown').replace('#','');
@@ -3895,6 +4108,16 @@ function autoSyncTick(){
   }catch(e){}
 }
 setInterval(autoSyncTick, SYNC_EVERY_MS);
+
+/* 套卷计时：只在套卷页刷新显示 */
+setInterval(function(){
+  var t = ptNow();
+  if(!t) return;
+  var el = ptElapsed();
+  var c = document.getElementById('ptClock'), tt = document.getElementById('ptTotal');
+  if(c) c.textContent = fmtDur(el.seg);
+  if(tt) tt.textContent = fmtDur(el.total);
+}, 1000);
 
 /* ================= 启动 ================= */
 function boot(){
