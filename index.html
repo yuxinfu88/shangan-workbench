@@ -1602,7 +1602,11 @@ function aiCfg(){
 var aiSysExtra = '';
 var aiImgs = [];
 function aiIsVision(model){
-  return /(vl|vision|omni|-4v|glm-4\.?5v|internvl|qvq)/i.test(String(model || ''));
+  var m = String(model || '').toLowerCase();
+  // DeepSeek 官方：deepseek-flash 支持图片输入，deepseek-v4-pro 不支持
+  if(/v4-pro|reasoner|deepseek-chat/.test(m)) return false;
+  if(/deepseek/.test(m)) return true;
+  return /(vl|vision|omni|-4v|glm-4\.?5v|internvl|qvq)/i.test(m);
 }
 function aiRenderThumbs(){
   var box = document.getElementById('aiImgs'); if(!box) return;
@@ -1649,7 +1653,7 @@ function openTeacher(prefill, context, sysExtra){
       aiRenderThumbs();
       var hv = document.getElementById('aiVisionHint');
       if(hv){
-        hv.textContent = aiIsVision(aiCfg().model) ? '当前模型可看图' : '当前模型只读文字，截图请先转文字或换看图模型';
+        hv.textContent = aiIsVision(aiCfg().model) ? '当前模型可直接看图' : '当前模型（deepseek-v4-pro）不能看图，换 deepseek-flash 或 qwen-vl';
         hv.style.color = aiIsVision(aiCfg().model) ? '#5c9478' : '#b07a4a';
       }
       $('#aiInput', box).focus();
@@ -1717,7 +1721,7 @@ function aiSend(){
   if(!cfg.key){ aiError('还没填 API Key：⚙️ 设置 → AI 助教'); return; }
   var imgs = aiImgs.slice();
   if(imgs.length && !aiIsVision(cfg.model)){
-    aiError('当前模型「' + cfg.model + '」不能看图。去 ⚙️ 设置 → AI 助教 换成能看图的：阿里百炼 qwen-vl-max、硅基流动 Qwen2.5-VL。');
+    aiError('当前模型「' + cfg.model + '」不支持图片。换成 deepseek-flash（默认，最便宜且能看图），或百炼 qwen-vl-max。');
     var inp2 = $('#aiInput', box); if(inp2) inp2.value = q;
     return;
   }
@@ -2799,7 +2803,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-09 · 22:55';
+var APP_BUILD = '2026-11-09 · 23:10';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -3305,7 +3309,7 @@ function openSettings(){
     '<button class="btn sm" data-act="ai-preset" data-base="https://api.deepseek.com/v1" data-model="deepseek-v4-pro">DeepSeek Pro</button>' +
     '<button class="btn sm" data-act="ai-preset" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-plus">阿里百炼</button>' +
     '<button class="btn sm" data-act="ai-preset" data-base="https://api.siliconflow.cn/v1" data-model="Qwen/Qwen2.5-7B-Instruct">硅基流动</button></div>' +
-    '<div class="tiny" style="background:#f3f8f4;border:1px solid #d5e8dc;border-radius:12px;padding:8px 10px;margin-bottom:8px;line-height:1.7">📷 <b>要看题目截图</b>（拍照/截屏直接问）必须换<b>能看图的模型</b>，DeepSeek 只能读文字：</div>' +
+    '<div class="tiny" style="background:#f3f8f4;border:1px solid #d5e8dc;border-radius:12px;padding:8px 10px;margin-bottom:8px;line-height:1.7">📷 <b>题目截图直接问</b>：DeepSeek 的 <b>deepseek-flash 本身就支持图片</b>（每张最多 1024 tokens）；<b>deepseek-v4-pro 不支持看图</b>。其他看图模型备选：</div>' +
     '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
     '<button class="btn sm" data-act="ai-preset" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-vl-max">👁 百炼 qwen-vl-max</button>' +
     '<button class="btn sm" data-act="ai-preset" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-vl-plus">👁 百炼 qwen-vl-plus</button>' +
