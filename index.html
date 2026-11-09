@@ -1715,6 +1715,12 @@ function aiSend(){
   if(!q || aiBusy) return;
   var cfg = aiCfg();
   if(!cfg.key){ aiError('还没填 API Key：⚙️ 设置 → AI 助教'); return; }
+  var imgs = aiImgs.slice();
+  if(imgs.length && !aiIsVision(cfg.model)){
+    aiError('当前模型「' + cfg.model + '」不能看图。去 ⚙️ 设置 → AI 助教 换成能看图的：阿里百炼 qwen-vl-max、硅基流动 Qwen2.5-VL。');
+    var inp2 = $('#aiInput', box); if(inp2) inp2.value = q;
+    return;
+  }
   inp.value = '';
   aiBubble('user', q + (imgs.length ? '　［' + imgs.length + ' 张题目截图］' : ''));
   var userContent = imgs.length
@@ -1723,12 +1729,6 @@ function aiSend(){
   aiHistory.push({ role:'user', content:userContent });
   aiImgs = []; aiRenderThumbs();
 
-  if(aiImgs.length && !aiIsVision(cfg.model)){
-    aiError('当前模型「' + cfg.model + '」不能看图。去 ⚙️ 设置 → AI 助教 换成能看图的：阿里百炼 qwen-vl-max、硅基流动 Qwen2.5-VL。');
-    var inp2 = $('#aiInput', box); if(inp2) inp2.value = q;
-    return;
-  }
-  var imgs = aiImgs.slice();
   var ctx = '';
   if($('#aiCtx', box) && $('#aiCtx', box).checked){
     var v = $('#view');
@@ -2799,7 +2799,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-09 · 22:40';
+var APP_BUILD = '2026-11-09 · 22:55';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
