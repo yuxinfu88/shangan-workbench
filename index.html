@@ -436,6 +436,18 @@ textarea.inp{min-height:72px;resize:vertical;line-height:1.6}
 .ai-msg.me{align-self:flex-end;background:linear-gradient(135deg,#8ec9ef,#a8e6cf);color:#fff}
 .ai-msg.bot{align-self:flex-start;background:#f7f4ee;color:var(--ink);border:1px solid #ece2d4}
 .ai-msg.sys{align-self:center;background:#fff8e6;color:#a8811f;font-size:calc(var(--fs-sm) - 1px)}
+.ai-msg.bot .md-p{margin:0}
+.ai-msg.bot .md-h{font-weight:800;margin:7px 0 2px}
+.ai-msg.bot .md-li{margin:2px 0 2px 1px;padding-left:2px}
+.ai-msg.bot .md-gap{height:5px}
+.ai-msg.bot .md-quote{border-left:3px solid #ddd2c2;padding-left:8px;color:#7d6f61;margin:3px 0}
+.ai-msg.bot .md-code{background:#efe9df;border-radius:9px;padding:7px 9px;white-space:pre-wrap;overflow:auto;margin:5px 0;font-size:.92em;line-height:1.5}
+.ai-msg.bot code.md-icode{background:#efe9df;border-radius:5px;padding:1px 4px;font-size:.94em}
+.ai-msg.bot strong{color:#3d3226}
+.ai-imgs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.ai-imgs .th{position:relative;width:56px;height:56px;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+.ai-imgs .th img{width:100%;height:100%;object-fit:cover;display:block}
+.ai-imgs .th .x{position:absolute;top:1px;right:1px;width:17px;height:17px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:11px;line-height:17px;text-align:center;cursor:pointer}
 .ai-row{display:flex;gap:8px;align-items:flex-end}
 .ai-row textarea{flex:1;min-height:52px;max-height:120px}
 
@@ -1588,6 +1600,28 @@ function aiCfg(){
   return state.settings.ai;
 }
 var aiSysExtra = '';
+var aiImgs = [];
+function aiIsVision(model){
+  return /(vl|vision|omni|-4v|glm-4\.?5v|internvl|qvq)/i.test(String(model || ''));
+}
+function aiRenderThumbs(){
+  var box = document.getElementById('aiImgs'); if(!box) return;
+  box.innerHTML = aiImgs.map(function(u, i){
+    return '<div class="th"><img src="' + u + '"><span class="x" data-act="ai-img-del" data-i="' + i + '">✕</span></div>';
+  }).join('');
+}
+function aiAddImages(files){
+  var list = Array.prototype.slice.call(files || []).filter(function(f){ return /^image\//.test(f.type); });
+  if(!list.length) return;
+  var room = 3 - aiImgs.length;
+  if(room <= 0){ toast('最多传 3 张'); return; }
+  list.slice(0, room).forEach(function(f){
+    compressImage(f, 1000, 0.82, function(dataUrl){
+      aiImgs.push(dataUrl);
+      aiRenderThumbs();
+    });
+  });
+}
 function openTeacher(prefill, context, sysExtra){
   aiSysExtra = sysExtra || '';
   aiHistory = [];
@@ -1598,7 +1632,12 @@ function openTeacher(prefill, context, sysExtra){
     '<div class="ai-log" id="aiLog"></div>' +
     '<label class="tiny" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">' +
     '<input type="checkbox" id="aiCtx" checked> 带上当前页面内容当背景</label>' +
-    '<div class="ai-row"><textarea class="inp" id="aiInput" placeholder="例如：这道资料分析题为什么比重上升？"></textarea>' +
+    '<div class="ai-imgs" id="aiImgs"></div>' +
+    '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">' +
+    '<button class="btn sm" data-act="ai-img-pick">📷 传题目截图</button>' +
+    '<span class="mini" id="aiVisionHint"></span>' +
+    '<input type="file" id="aiImgFile" accept="image/*" multiple style="display:none"></div>' +
+    '<div class="ai-row"><textarea class="inp" id="aiInput" placeholder="例如：这道资料分析题为什么比重上升？（可直接粘截图）"></textarea>' +
     '<button class="btn primary" data-act="ai-send" style="flex:0 0 auto">发送</button></div>' +
     '<div class="modal-actions"><button class="btn ghost sm" data-act="ai-clear">清空对话</button>' +
     '<button class="btn ghost" data-act="modal-close">关闭</button></div>',
@@ -1606,6 +1645,13 @@ function openTeacher(prefill, context, sysExtra){
       aiLogSys('老师已就位。可以直接问题目、问方法，或让我点评你的答案。');
       if(prefill){ $('#aiInput', box).value = prefill; }
       if(context) aiLogSys('已载入当前页面内容作为背景');
+      aiImgs = [];         // 每次打开清空
+      aiRenderThumbs();
+      var hv = document.getElementById('aiVisionHint');
+      if(hv){
+        hv.textContent = aiIsVision(aiCfg().model) ? '当前模型可看图' : '当前模型只读文字，截图请先转文字或换看图模型';
+        hv.style.color = aiIsVision(aiCfg().model) ? '#5c9478' : '#b07a4a';
+      }
       $('#aiInput', box).focus();
     }
   );
@@ -1616,11 +1662,43 @@ function aiLogSys(t){
   d.className = 'ai-msg sys'; d.textContent = t;
   log.appendChild(d); log.scrollTop = log.scrollHeight;
 }
+/* ============ 轻量 Markdown（AI 回复用） ============ */
+function inlineMd(s){
+  s = s.replace(/`([^`]+)`/g, '<code class="md-icode">$1</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  return s;
+}
+function mdHtml(t){
+  var raw = String(t || '');
+  var blocks = [];
+  raw = raw.replace(/```[a-zA-Z]*\n?([\s\S]*?)```/g, function(_, c){
+    blocks.push(c.replace(/\n$/, ''));
+    return '\u0001B' + (blocks.length - 1) + '\u0001';
+  });
+  var out = [];
+  esc(raw).split('\n').forEach(function(ln){
+    var m;
+    if(/^\u0001B\d+\u0001$/.test(ln.trim())){ out.push(ln.trim()); return; }
+    if(!ln.trim()){ out.push('<div class="md-gap"></div>'); return; }
+    if(/^#{1,4}\s+/.test(ln)){ out.push('<div class="md-h">' + inlineMd(ln.replace(/^#{1,4}\s+/, '')) + '</div>'); return; }
+    if(/^\s*[-•*]\s+/.test(ln)){ out.push('<div class="md-li">• ' + inlineMd(ln.replace(/^\s*[-•*]\s+/, '')) + '</div>'); return; }
+    if((m = ln.match(/^\s*(\d+)[.、)]\s+(.+)$/))){ out.push('<div class="md-li"><b>' + m[1] + '.</b> ' + inlineMd(m[2]) + '</div>'); return; }
+    if(/^\s*>\s?/.test(ln)){ out.push('<div class="md-quote">' + inlineMd(ln.replace(/^\s*>\s?/, '')) + '</div>'); return; }
+    out.push('<div class="md-p">' + inlineMd(ln) + '</div>');
+  });
+  return out.join('').replace(/\u0001B(\d+)\u0001/g, function(_, i){
+    return '<pre class="md-code">' + esc(blocks[+i]) + '</pre>';
+  });
+}
 function aiBubble(role, text){
   var log = $('#aiLog'); if(!log) return null;
   var d = document.createElement('div');
   d.className = 'ai-msg ' + (role === 'user' ? 'me' : 'bot');
-  d.textContent = text;
+  if(role === 'user'){ d.textContent = text; }
+  else { d.innerHTML = mdHtml(text); }
   log.appendChild(d); log.scrollTop = log.scrollHeight;
   return d;
 }
@@ -1638,9 +1716,19 @@ function aiSend(){
   var cfg = aiCfg();
   if(!cfg.key){ aiError('还没填 API Key：⚙️ 设置 → AI 助教'); return; }
   inp.value = '';
-  aiBubble('user', q);
-  aiHistory.push({ role:'user', content:q });
+  aiBubble('user', q + (imgs.length ? '　［' + imgs.length + ' 张题目截图］' : ''));
+  var userContent = imgs.length
+    ? [{ type:'text', text:q }].concat(imgs.map(function(u){ return { type:'image_url', image_url:{ url:u } }; }))
+    : q;
+  aiHistory.push({ role:'user', content:userContent });
+  aiImgs = []; aiRenderThumbs();
 
+  if(aiImgs.length && !aiIsVision(cfg.model)){
+    aiError('当前模型「' + cfg.model + '」不能看图。去 ⚙️ 设置 → AI 助教 换成能看图的：阿里百炼 qwen-vl-max、硅基流动 Qwen2.5-VL。');
+    var inp2 = $('#aiInput', box); if(inp2) inp2.value = q;
+    return;
+  }
+  var imgs = aiImgs.slice();
   var ctx = '';
   if($('#aiCtx', box) && $('#aiCtx', box).checked){
     var v = $('#view');
@@ -1665,7 +1753,7 @@ function aiSend(){
   .then(function(j){
     var c = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '（没有拿到回复）';
     aiHistory.push({ role:'assistant', content:c });
-    if(wait) wait.textContent = c;
+    if(wait){ wait.innerHTML = mdHtml(c); }
     var log = $('#aiLog'); if(log) log.scrollTop = log.scrollHeight;
   })
   .catch(function(e){
@@ -2711,7 +2799,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-08 · 06:15';
+var APP_BUILD = '2026-11-09 · 22:40';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -3217,6 +3305,11 @@ function openSettings(){
     '<button class="btn sm" data-act="ai-preset" data-base="https://api.deepseek.com/v1" data-model="deepseek-v4-pro">DeepSeek Pro</button>' +
     '<button class="btn sm" data-act="ai-preset" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-plus">阿里百炼</button>' +
     '<button class="btn sm" data-act="ai-preset" data-base="https://api.siliconflow.cn/v1" data-model="Qwen/Qwen2.5-7B-Instruct">硅基流动</button></div>' +
+    '<div class="tiny" style="background:#f3f8f4;border:1px solid #d5e8dc;border-radius:12px;padding:8px 10px;margin-bottom:8px;line-height:1.7">📷 <b>要看题目截图</b>（拍照/截屏直接问）必须换<b>能看图的模型</b>，DeepSeek 只能读文字：</div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+    '<button class="btn sm" data-act="ai-preset" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-vl-max">👁 百炼 qwen-vl-max</button>' +
+    '<button class="btn sm" data-act="ai-preset" data-base="https://dashscope.aliyuncs.com/compatible-mode/v1" data-model="qwen-vl-plus">👁 百炼 qwen-vl-plus</button>' +
+    '<button class="btn sm" data-act="ai-preset" data-base="https://api.siliconflow.cn/v1" data-model="Qwen/Qwen2.5-VL-72B-Instruct">👁 硅基 Qwen2.5-VL</button></div>' +
     '<input class="inp" id="aiBase" data-ai-field="base" placeholder="接口地址" value="' + esc((state.settings.ai || {}).base || '') + '">' +
     '<input class="inp" id="aiModel" data-ai-field="model" style="margin-top:6px" placeholder="模型名，如 deepseek-flash / deepseek-v4-pro" value="' + esc((state.settings.ai || {}).model || '') + '">' +
     '<div style="display:flex;gap:8px;margin-top:6px">' +
@@ -3853,6 +3946,8 @@ document.addEventListener('click', function(e){
     return;
   }
   if(act === 'ai-send'){ aiSend(); return; }
+  if(act === 'ai-img-pick'){ var f = document.getElementById('aiImgFile'); if(f) f.click(); return; }
+  if(act === 'ai-img-del'){ aiImgs.splice(parseInt(t.getAttribute('data-i'), 10) || 0, 1); aiRenderThumbs(); return; }
   if(act === 'ai-clear'){ aiHistory = []; var lg = $('#aiLog'); if(lg) lg.innerHTML = ''; aiLogSys('已清空，重新开始'); return; }
   if(act === 'ai-preset'){
     var ac = aiCfg();
@@ -4318,6 +4413,18 @@ function loadSnapList(){
 
 document.addEventListener('change', function(e){
   if(e.target && e.target.id === 'skillFile'){ importSkillFiles(e.target.files, false); }
+  if(e.type === 'paste' && e.target && e.target.id === 'aiInput' && e.clipboardData){
+    var imgsInClip = Array.prototype.slice.call(e.clipboardData.items || [])
+      .filter(function(it){ return it.type.indexOf('image') === 0; })
+      .map(function(it){ return it.getAsFile(); }).filter(Boolean);
+    if(imgsInClip.length){ e.preventDefault(); aiAddImages(imgsInClip); }
+    return;
+  }
+  if(e.target && e.target.id === 'aiImgFile'){
+    aiAddImages(e.target.files);
+    e.target.value = '';
+    return;
+  }
   if(e.target && e.target.id === 'pdfFile'){
     var pf2 = e.target.files && e.target.files[0];
     if(pf2) openPdf(pf2);
