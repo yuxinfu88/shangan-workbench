@@ -822,6 +822,8 @@ const DEF_STATE = {
   redoLog:[],
   papers:[],
   paperTimer:null,
+  newsCache:null,
+  newsTry:0,
   _skillsVer:1,
   archiveOffset:0,
   settings:{ font:'m', pinned:true, sync:{ url:'', user:'', pass:'', lastSync:'', connected:false },
@@ -1999,7 +2001,7 @@ function planRow(it){
 function newsItemHTML(n, i){
   return '<div class="item"><h3>' + (i + 1) + '. ' + esc(n.t) + '</h3>' +
     '<div class="tiny muted">📅 ' + esc(n.date) + '　·　来源：' + esc(n.src) + '</div>' +
-    '<p>' + esc(n.d) + '</p>' +
+    '<p>' + esc(n.d || '（摘要未取到，点下方链接看原文；标题已按要点归类）') + '</p>' +
     '<div class="kp">' + esc(n.point) + '</div>' +
     (n.url ? '<div style="margin-top:8px"><a class="src-link" href="' + esc(n.url) + '" target="_blank" rel="noopener">🔗 溯源原文 →</a></div>' : '') +
     '</div>';
@@ -2009,26 +2011,125 @@ function archiveBatch(){
   for(var i = 0; i < size; i++) out.push(NEWS_ARCHIVE[(start + i) % n]);
   return out;
 }
+/* ============ 时政：每日实时抓取（中国政府网要闻 JSON，CORS 已开放） ============ */
+const NEWS_API = 'https://www.gov.cn/yaowen/liebiao/YAOWENLIEBIAO.json';
+var newsBusy = false;
+
+function newsRuleTag(t){
+  var R = [
+    [/(二十届|全会|习近平|从严治党|党的建设|中央|党委|党组)/, '政治理论·党的领导'],
+    [/(国务院令|条例|办法|法律|立法|法治|人大|司法解释|宪法)/, '法律·制度'],
+    [/(经济|贸易|财政|金融|投资|消费|增长|物价|货币|资本市场|关税|外贸|产业)/, '经济·宏观调控'],
+    [/(民生|就业|教育|医疗|养老|社保|住房|救助|脱贫|乡村振兴|粮食|菜价)/, '民生·社会保障'],
+    [/(科技|创新|航天|人工智能|芯片|数字经济|算力|6G|量子|大模型)/, '科技·创新驱动'],
+    [/(外交|会见|会谈|通话|对话|峰会|访问|大使|联合国|总统|总理|外长)/, '外交·国际关系'],
+    [/(军队|军委|国防|演训|部队|军事)/, '国防·军事'],
+    [/(生态|环境|碳|绿色|节能|污染|流域|湿地)/, '生态·绿色发展'],
+    [/(文化|旅游|非遗|文物|体育|出版|电影)/, '文化·文体']
+  ];
+  for(var i = 0; i < R.length; i++){ if(R[i][0].test(t)) return R[i][1]; }
+  return '综合·时政';
+}
+function newsSummaryOf(url){
+  return fetch(url, { cache:'no-store' })
+    .then(function(r){ return r.text(); })
+    .then(function(t){
+      var doc = new DOMParser().parseFromString(t, 'text/html');
+      var ps = doc.querySelectorAll('#UCAP-CONTENT p');
+      var buf = [], s;
+      for(var i = 0; i < ps.length && buf.join('').length < 190; i++){
+        s = (ps[i].textContent || '').replace(/\s+/g, ' ').trim();
+        if(s && s.length > 12) buf.push(s);
+      }
+      var d = buf.join('').slice(0, 240);
+      return d ? d + (d.length >= 240 ? '…' : '') : '';
+    })
+    .catch(function(){ return ''; });
+}
+function newsFetch(silent){
+  if(newsBusy) return;
+  newsBusy = true;
+  var today = todayStr();
+  fetch(NEWS_API + '?t=' + Date.now(), { cache:'no-store' })
+    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(list){
+      var items = (list || []).filter(function(x){ return x && x.TITLE && x.URL; }).map(function(x){
+        var t = String(x.TITLE).trim();
+        return { t:t, date:String(x.DOCRELPUBTIME || '').slice(0, 10), url:x.URL,
+                 src:'中国政府网', d:'', point:'【考点·' + newsRuleTag(t) + '】' };
+      });
+      if(!items.length) throw new Error('没有解析到条目');
+      var todayItems = items.filter(function(x){ return x.date === today; });
+      if(!todayItems.length){
+        var latest = items[0].date;
+        todayItems = items.filter(function(x){ return x.date === latest; });
+      }
+      var pick = todayItems.slice(0, 5);
+      var pool = items.filter(function(x){ return pick.indexOf(x) < 0; }).slice(0, 40);
+      return Promise.all(pick.map(function(it){
+        return newsSummaryOf(it.url).then(function(d){ it.d = d; return it; });
+      })).then(function(list2){
+        state.newsCache = { date:today, at:Date.now(), gotDate:(list2[0] || {}).date || today, today:list2, pool:pool };
+        saveNow();
+        if(currentPage === 'politics') route();
+        if(!silent) toast('✅ 时政已更新：' + list2.length + ' 条今日 · ' + pool.length + ' 条往期');
+      });
+    })
+    .catch(function(e){ if(!silent) toast('抓取失败：' + String(e.message || e).slice(0, 60)); })
+    .finally(function(){ newsBusy = false; });
+}
+function newsLive(){
+  var c = state.newsCache;
+  return (c && c.today && c.today.length && c.date === todayStr()) ? c : null;
+}
+function newsPoolBatch(){
+  var c = newsLive(); if(!c) return [];
+  var size = 5, n = c.pool.length; if(!n) return [];
+  var start = ((state.archiveOffset || 0) * size) % n, out = [];
+  for(var i = 0; i < size; i++) out.push(c.pool[(start + i) % n]);
+  return out;
+}
+function fmtAgo(ts){
+  var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if(s < 60) return s + ' 秒前';
+  if(s < 3600) return Math.round(s / 60) + ' 分钟前';
+  return Math.round(s / 3600) + ' 小时前';
+}
 function renderPolitics(){
+  var live = newsLive();
   var html = pageHead('🏛️', '政治理论', '');
   html += todoCard('政治理论');
   html += progressCard('政治理论');
 
-  html += '<div class="card"><div class="card-head"><h2>📰 今日时政热点积累</h2>' +
-          '<span class="tag">5 条</span><span class="right tiny muted">数据包更新：' + NEWS_PACK_DATE + '</span></div>' +
-          '<div class="tiny" style="margin-bottom:10px;background:#f2f9f4;border:1px solid #cfe8d8;border-radius:12px;padding:7px 10px;line-height:1.65;color:#3f7a5c">✅ 这个模块是<b>真实</b>内容：新闻标题、日期、正文摘要均抓自新华网/中国政府网（附原文链接可逐条核对）；"考点"标注是我按公考视角写的解读。</div>';
-  if(todayStr() !== NEWS_PACK_DATE){
-    html += '<div class="tiny" style="background:#fff3ef;border:1px solid #fbd6ce;border-radius:12px;padding:8px 10px;margin-bottom:10px;color:#a9604f">' +
-      '⏰ 今天的数据包日期是 ' + NEWS_PACK_DATE + '。想读此刻最新时政，可打开 <a href="https://www.news.cn/politics/" target="_blank" rel="noopener">新华网·时政</a> 或 ' +
-      '<a href="https://www.gov.cn/yaowen/liebiao/" target="_blank" rel="noopener">中国政府网·要闻</a>；需要我把新内容写进数据包，告诉我一声就行。</div>';
+  if(!live){
+    /* 首次进入自动抓一次（每天每台设备最多几次，失败就安静回落内置包） */
+    var lastTry = state.newsTry || 0;
+    if(!newsBusy && Date.now() - lastTry > 5 * 60 * 1000){ state.newsTry = Date.now(); saveNow(); newsFetch(true); }
   }
-  NEWS_TODAY.forEach(function(n, i){ html += newsItemHTML(n, i); });
+
+  html += '<div class="card"><div class="card-head"><h2>📰 今日时政热点积累</h2>' +
+          '<span class="tag">' + (live ? live.today.length : 5) + ' 条</span>' +
+          '<span class="right"><button class="btn sm" data-act="news-refresh">' + (newsBusy ? '⏳ 抓取中…' : '🔄 立即更新') + '</button></span></div>';
+
+  if(live){
+    html += '<div class="tiny" style="margin-bottom:10px;background:#f2f9f4;border:1px solid #cfe8d8;border-radius:12px;padding:7px 10px;line-height:1.7;color:#3f7a5c">' +
+      '✅ 实时抓自<b>中国政府网·要闻</b>（' + esc(live.gotDate) + '）· ' + fmtAgo(live.at) + '更新。摘要取自原文首段，"考点"是<b>关键词规则自动归类</b>，不是人工解读；点链接可逐条核对原文。</div>';
+  } else {
+    html += '<div class="tiny" style="margin-bottom:10px;background:#fff8e6;border:1px solid #f0ddb4;border-radius:12px;padding:7px 10px;line-height:1.7;color:#a8811f">' +
+      '⏳ 正在从中国政府网抓今天的要闻（首次约 3–6 秒）… 抓不到就先用<b>内置数据包（' + NEWS_PACK_DATE + '）</b>顶着，点右上「立即更新」可重试。</div>';
+  }
+
+  var list = live ? live.today : NEWS_TODAY;
+  list.forEach(function(n, i){ html += newsItemHTML(n, i); });
   html += '</div>';
 
+  var past = live ? newsPoolBatch() : archiveBatch();
   html += '<div class="card"><div class="card-head"><h2>🗂️ 往期时政热点</h2><span class="tag mint">5 条</span>' +
           '<span class="right"><button class="btn sm" data-act="news-batch">🔄 换一批</button></span></div>';
-  archiveBatch().forEach(function(n, i){ html += newsItemHTML(n, i); });
-  html += '<div class="tiny muted">共 ' + NEWS_ARCHIVE.length + ' 条往期素材，每次换 5 条，循环轮换。</div></div>';
+  past.forEach(function(n, i){ html += newsItemHTML(n, i); });
+  html += '<div class="tiny muted">' + (live
+    ? ('共 ' + live.pool.length + ' 条往期要闻，每次换 5 条循环轮换；每天 07:00 后自动换成当日新条目。')
+    : ('共 ' + NEWS_ARCHIVE.length + ' 条内置往期素材，每次换 5 条循环轮换。')) + '</div></div>';
 
   html += '<div class="card butter"><div class="card-head"><h2>💡 用时政的方法</h2></div>' +
     '<div class="tiny" style="line-height:1.9">① <b>积累</b>：每天读 5 条，只记"什么人、什么事、什么表述"三要素；<br>' +
@@ -2803,7 +2904,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-09 · 23:10';
+var APP_BUILD = '2026-11-10 · 00:20';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -3232,6 +3333,7 @@ function exportPayload(includeSecrets){
     if(copy.settings.gh){ copy.settings.gh = { token:'', gistId:copy.settings.gh.gistId || '', auto:!!copy.settings.gh.auto, lastSync:copy.settings.gh.lastSync || '' }; }
     if(copy.settings.ai) copy.settings.ai = { base:copy.settings.ai.base || '', model:copy.settings.ai.model || '', key:'' };
   }
+  delete copy.newsCache; delete copy.newsTry;
   return copy;
 }
 function maskSecret(s){
@@ -3477,6 +3579,7 @@ document.addEventListener('click', function(e){
     save(); rerender(); toast('已删除');
     return;
   }
+  if(act === 'news-refresh'){ newsFetch(false); route(); return; }
   if(act === 'news-batch'){
     state.archiveOffset = ((state.archiveOffset || 0) + 1) % Math.ceil(NEWS_ARCHIVE.length / 5);
     save(); rerender();
@@ -4127,6 +4230,7 @@ function cloudPayload(src){
   if(c.settings && c.settings.report) c.settings.report.webhook = '';
   if(c.settings && c.settings.gh) c.settings.gh.token = '';
   if(c.settings && c.settings.ai) c.settings.ai.key = '';
+  delete c.newsCache; delete c.newsTry;
   return c;
 }
 /* 从云端/外部恢复时，保留本机已填的凭证，避免同步被自己清断 */
