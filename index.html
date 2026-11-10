@@ -2071,6 +2071,7 @@ function newsFetch(silent){
       })).then(function(list2){
         state.newsCache = { date:today, at:Date.now(), gotDate:(list2[0] || {}).date || today, today:list2, pool:pool };
         saveNow();
+        newsBusy = false;          // 先复位，避免重绘时按钮还显示"抓取中"
         if(currentPage === 'politics') route();
         if(!silent) toast('✅ 时政已更新：' + list2.length + ' 条今日 · ' + pool.length + ' 条往期');
       });
@@ -2904,7 +2905,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-10 · 00:20';
+var APP_BUILD = '2026-11-10 · 00:35';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
