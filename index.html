@@ -1604,6 +1604,7 @@ function aiCfg(){
 }
 var aiSysExtra = '';
 var aiImgs = [];
+function aiSkillOn(){ var v = (state.settings.ai || {}).autoSkill; return v === undefined ? true : !!v; }
 function aiIsVision(model){
   var m = String(model || '').toLowerCase();
   // DeepSeek 官方：deepseek-flash 支持图片输入，deepseek-v4-pro 不支持
@@ -1639,7 +1640,8 @@ function openTeacher(prefill, context, sysExtra){
     '<div class="ai-log" id="aiLog"></div>' +
     '<div style="display:flex;gap:14px;align-items:center;margin-bottom:6px;flex-wrap:wrap">' +
     '<label class="tiny" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="aiCtx" checked> 带上当前页面内容</label>' +
-    '<label class="tiny" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="aiThink"> 🧠 深度思考（慢但更准）</label></div>' +
+    '<label class="tiny" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="aiThink"> 🧠 深度思考（慢但更准）</label>' +
+    '<label class="tiny" style="display:flex;gap:6px;align-items:center" title="从本机技能库里挑最相关的 2 份，只取相关段落塞进提问"><input type="checkbox" id="aiSkill" ' + (aiSkillOn() ? 'checked' : '') + '> 📚 自动调取老师方法</label></div>' +
     '<div class="ai-imgs" id="aiImgs"></div>' +
     '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">' +
     '<button class="btn sm" data-act="ai-img-pick">📷 传题目截图</button>' +
@@ -1744,6 +1746,78 @@ function aiPost(cfg, msgs, opt){
     };
   });
 }
+/* ============ 提问时自动调取最相关的老师方法论 ============ */
+const AI_KW = ['比重','增长率','增长量','基期','现期','平均数','倍数','隔年','混合','两期','同比','环比','百分点',
+  '主旨','意图','细节','语句排序','逻辑填空','成语','实词','转折','并列','递进','总分','对策词',
+  '翻译推理','真假话','加强','削弱','论证','类比','定义判断','图形推理','空间','位置','样式','数量规律',
+  '工程','行程','排列组合','概率','容斥','牛吃草','年龄','和差倍','不定方程','浓度','赋值',
+  '概括','归纳','分论点','贯彻执行','采分点','规范化','大作文','小题','材料','对策'];
+const AI_MODWORD = {'资料分析':'资料分析','比重':'资料分析','增长率':'资料分析','增长量':'资料分析','基期':'资料分析','现期':'资料分析','平均数':'资料分析','倍数':'资料分析','同比':'资料分析','环比':'资料分析',
+  '言语理解':'言语理解','主旨':'言语理解','意图':'言语理解','成语':'言语理解','填词':'言语理解','排序':'言语理解','片段':'言语理解',
+  '判断推理':'判断推理','逻辑':'判断推理','翻译':'判断推理','真假':'判断推理','加强':'判断推理','削弱':'判断推理','类比':'判断推理','定义':'判断推理','图形推理':'判断推理',
+  '数量关系':'数量关系','工程':'数量关系','行程':'数量关系','排列':'数量关系','概率':'数量关系','容斥':'数量关系','浓度':'数量关系',
+  '申论':'申论','作文':'申论','概括':'申论','采分':'申论','贯彻执行':'申论','分论点':'申论','对策':'申论',
+  '常识':'常识','时政':'政治理论','政治理论':'政治理论','面试':'面试'};
+function aiQuestionMods(q){
+  var ms = {};
+  Object.keys(AI_MODWORD).forEach(function(k){
+    if(q.indexOf(k) >= 0){ var m = AI_MODWORD[k]; ms[m] = (ms[m] || 0) + 1; }
+  });
+  var pm = ({ data:'资料分析', verbal:'言语理解', logic:'判断推理', math:'数量关系',
+              'sl-small':'申论', 'sl-big':'申论', common:'常识', politics:'政治理论' })[currentPage];
+  if(pm) ms[pm] = (ms[pm] || 0) + 0.6;   // 当前页面只是弱信号
+  return ms;
+}
+function aiPickSections(body, q, budget){
+  var lines = String(body || '').split('\n');
+  var secs = [], cur = { h:'', buf:[] };
+  lines.forEach(function(ln){
+    if(/^#{1,4}\s/.test(ln)){
+      if(cur.buf.length) secs.push(cur);
+      cur = { h:ln.replace(/^#+\s*/, '').trim(), buf:[] };
+    } else cur.buf.push(ln);
+  });
+  if(cur.buf.length) secs.push(cur);
+  if(!secs.length) return String(body || '').slice(0, budget);
+  var kws = AI_KW.concat(String(q || '').split(/[\s，。？、；：！?]+/).filter(function(x){ return x.length >= 2; }));
+  var scored = secs.map(function(s){
+    var t = s.buf.join('\n'), sc = 0;
+    kws.forEach(function(k){ if(k && t.indexOf(k) >= 0) sc += (k.length >= 3 ? 2 : 1); });
+    if(s.h) kws.forEach(function(k){ if(s.h.indexOf(k) >= 0) sc += 3; });
+    return { h:s.h, t:t.trim(), sc:sc };
+  }).filter(function(x){ return x.t; }).sort(function(a, b){ return b.sc - a.sc; });
+  var out = '', used = 0;
+  for(var i = 0; i < scored.length && used < budget; i++){
+    var piece = (scored[i].h ? ('【' + scored[i].h + '】\n') : '') + scored[i].t;
+    if(piece.length > budget - used) piece = piece.slice(0, budget - used);
+    out += (out ? '\n\n' : '') + piece;
+    used += piece.length;
+  }
+  return out;
+}
+function aiAutoSkills(q){
+  if(typeof loadTeachers !== 'function') return Promise.resolve({ text:'', names:[] });
+  return loadTeachers().then(function(list){
+    if(!list || !list.length) return { text:'', names:[] };
+    var mods = aiQuestionMods(q);
+    var ranked = list.map(function(t){
+      var s = mods[t.mod] ? mods[t.mod] * 3 : 0;
+      if(s && String(t.name || '').indexOf(t.mod) >= 0) s += 1;
+      return { t:t, s:s };
+    }).filter(function(x){ return x.s > 0; }).sort(function(a, b){ return b.s - a.s; }).slice(0, 2);
+    if(!ranked.length) return { text:'', names:[] };
+    return Promise.all(ranked.map(function(p){
+      return idbGet('skill:' + p.t.id).then(function(rec){ return { meta:p.t, text:(rec && rec.text) || '' }; });
+    })).then(function(arr){
+      var blocks = [], names = [];
+      arr.forEach(function(x){
+        var sec = aiPickSections(x.text.replace(/^---[\s\S]*?---/, ''), q, 1400);
+        if(sec){ blocks.push('【' + x.meta.name + '（' + x.meta.mod + '）的方法论节选】\n' + sec); names.push(x.meta.name); }
+      });
+      return { text: blocks.join('\n\n'), names:names };
+    });
+  }).catch(function(){ return { text:'', names:[] }; });
+}
 function aiSend(){
   var box = $('#modalBox');
   var inp = $('#aiInput', box);
@@ -1758,6 +1832,7 @@ function aiSend(){
     return;
   }
   var deep = $('#aiThink', box) && $('#aiThink', box).checked;
+  var autoSkill = $('#aiSkill', box) ? $('#aiSkill', box).checked : true;
   inp.value = '';
   aiBubble('user', q + (imgs.length ? '　［' + imgs.length + ' 张题目截图］' : ''));
   var userContent = imgs.length
@@ -1771,26 +1846,35 @@ function aiSend(){
     var v = $('#view');
     ctx = '\n\n【当前页面】' + currentPage + '\n' + (v ? v.innerText.slice(0, 900) : '');
   }
-  var msgs = [{ role:'system', content: AI_SYS + (aiSysExtra ? '\n\n' + aiSysExtra : '') + ctx }].concat(aiHistory.slice(-10));
 
   aiBusy = true;
   var wait = aiBubble('bot', deep ? '老师在深入思考…' : '老师正在想…');
 
-  aiPost(cfg, msgs, { thinking:deep, maxTokens: deep ? 3000 : 1600 })
-    .then(function(res){
-      /* 空回复兜底：多半是思考过程吃光了 max_tokens，关掉思考再问一次 */
-      if(res.text) return res;
-      return aiPost(cfg, msgs, { thinking:false, maxTokens:2000 }).then(function(r2){
-        if(r2.text && r2.text.trim()) return r2;
-        return { text:'', reasoning:res.reasoning || r2.reasoning, finish:res.finish || r2.finish, usage:res.usage || r2.usage, failed:true };
+  /* 只有从"问这位老师"进来时才用指定老师；否则按问题自动检索技能库 */
+  var prep = (autoSkill && !aiSysExtra)
+    ? aiAutoSkills(q)
+    : Promise.resolve({ text:'', names:[] });
+
+  prep.then(function(bag){
+    if(bag.names.length) aiLogSys('📚 参考了 ' + bag.names.join('、') + ' 的方法论节选');
+    var extra = aiSysExtra || '';
+    if(bag.text) extra += (extra ? '\n\n' : '') + '下面是公考老师的方法论节选，回答时<b>优先按它的步骤和术语来</b>，不要自创体系：\n' + bag.text;
+    var msgs = [{ role:'system', content: AI_SYS + (extra ? '\n\n' + extra : '') + ctx }].concat(aiHistory.slice(-10));
+    return aiPost(cfg, msgs, { thinking:deep, maxTokens: deep ? 3000 : 1600 })
+      .then(function(res){
+        if(res.text) return res;
+        return aiPost(cfg, msgs, { thinking:false, maxTokens:2000 }).then(function(r2){
+          if(r2.text && r2.text.trim()) return r2;
+          return { text:'', reasoning:res.reasoning || r2.reasoning, finish:res.finish || r2.finish, usage:res.usage || r2.usage };
+        });
       });
-    })
+  })
     .then(function(res){
       var txt = (res.text || '').trim();
       if(!txt){
         var why = res.finish === 'length' ? '输出被 max_tokens 截断' : (res.finish ? ('finish_reason=' + res.finish) : '返回内容为空');
         if(res.reasoning){
-          aiBubble('bot', '模型只输出了思考过程，没有给出最终答案（' + why + '）。下面是它的思考片段：\n\n' + res.reasoning.slice(-600));
+          aiBubble('bot', '模型只输出了思考过程，没有给出最终答案（' + why + '）。思考片段：\n\n' + res.reasoning.slice(-600));
           aiError('没能拿到正式回答：' + why + '。可以换个问法，或把「🧠 深度思考」关掉再问。');
         } else {
           aiError('没能拿到回答：' + why + '。' + (res.usage ? ('（输出 tokens ' + (res.usage.completion_tokens || '?') + '）') : ''));
@@ -2972,7 +3056,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-16 · 23:40';
+var APP_BUILD = '2026-11-17 · 00:10';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -4599,6 +4683,12 @@ document.addEventListener('change', function(e){
       .filter(function(it){ return it.type.indexOf('image') === 0; })
       .map(function(it){ return it.getAsFile(); }).filter(Boolean);
     if(imgsInClip.length){ e.preventDefault(); aiAddImages(imgsInClip); }
+    return;
+  }
+  if(e.target && e.target.id === 'aiSkill'){
+    state.settings.ai = aiCfg();
+    state.settings.ai.autoSkill = !!e.target.checked;
+    save();
     return;
   }
   if(e.target && e.target.id === 'aiImgFile'){
