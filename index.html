@@ -1637,8 +1637,9 @@ function openTeacher(prefill, context, sysExtra){
     '<div class="desc">用你填的模型接口回答（默认 DeepSeek）。' +
     (aiCfg().key ? '' : '<b style="color:#c9604f">还没配 API Key：⚙️ 设置 → AI 助教</b>') + '</div>' +
     '<div class="ai-log" id="aiLog"></div>' +
-    '<label class="tiny" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">' +
-    '<input type="checkbox" id="aiCtx" checked> 带上当前页面内容当背景</label>' +
+    '<div style="display:flex;gap:14px;align-items:center;margin-bottom:6px;flex-wrap:wrap">' +
+    '<label class="tiny" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="aiCtx" checked> 带上当前页面内容</label>' +
+    '<label class="tiny" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="aiThink"> 🧠 深度思考（慢但更准）</label></div>' +
     '<div class="ai-imgs" id="aiImgs"></div>' +
     '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">' +
     '<button class="btn sm" data-act="ai-img-pick">📷 传题目截图</button>' +
@@ -1715,6 +1716,34 @@ function aiError(msg){
   d.className = 'ai-msg sys'; d.textContent = '⚠️ ' + msg;
   log.appendChild(d); log.scrollTop = log.scrollHeight;
 }
+function aiContentOf(msg){
+  var c = msg && msg.content;
+  if(Array.isArray(c)) return c.map(function(p){ return (p && (p.text || p.content)) || ''; }).join('');
+  return typeof c === 'string' ? c : '';
+}
+function aiPost(cfg, msgs, opt){
+  opt = opt || {};
+  var body = { model:cfg.model, max_tokens:opt.maxTokens || 1600, messages:msgs };
+  if(!opt.thinking){ body.temperature = 0.3; }          // 思考模式下这两个参数无效，索性不发
+  if(/deepseek/i.test(cfg.model)) body.thinking = { type: opt.thinking ? 'enabled' : 'disabled' };
+  if(opt.thinking) body.reasoning_effort = 'high';
+  return fetch(String(cfg.base).replace(/\/+$/, '') + '/chat/completions', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + cfg.key },
+    body: JSON.stringify(body)
+  }).then(function(r){
+    if(!r.ok) return r.text().then(function(t){ throw new Error('HTTP ' + r.status + '：' + t.slice(0, 160)); });
+    return r.json();
+  }).then(function(j){
+    var chp = (j.choices || [])[0] || {};
+    return {
+      text: aiContentOf(chp.message),
+      reasoning: chp.message && chp.message.reasoning_content || '',
+      finish: chp.finish_reason || '',
+      usage: j.usage || null
+    };
+  });
+}
 function aiSend(){
   var box = $('#modalBox');
   var inp = $('#aiInput', box);
@@ -1728,6 +1757,7 @@ function aiSend(){
     var inp2 = $('#aiInput', box); if(inp2) inp2.value = q;
     return;
   }
+  var deep = $('#aiThink', box) && $('#aiThink', box).checked;
   inp.value = '';
   aiBubble('user', q + (imgs.length ? '　［' + imgs.length + ' 张题目截图］' : ''));
   var userContent = imgs.length
@@ -1741,33 +1771,42 @@ function aiSend(){
     var v = $('#view');
     ctx = '\n\n【当前页面】' + currentPage + '\n' + (v ? v.innerText.slice(0, 900) : '');
   }
+  var msgs = [{ role:'system', content: AI_SYS + (aiSysExtra ? '\n\n' + aiSysExtra : '') + ctx }].concat(aiHistory.slice(-10));
+
   aiBusy = true;
-  var wait = aiBubble('bot', '老师正在想…');
-  fetch(String(cfg.base).replace(/\/+$/, '') + '/chat/completions', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + cfg.key },
-    body: JSON.stringify({
-      model: cfg.model,
-      temperature: 0.3,
-      max_tokens: 900,
-      messages: [{ role:'system', content: AI_SYS + (aiSysExtra ? '\n\n' + aiSysExtra : '') + ctx }].concat(aiHistory.slice(-10))
+  var wait = aiBubble('bot', deep ? '老师在深入思考…' : '老师正在想…');
+
+  aiPost(cfg, msgs, { thinking:deep, maxTokens: deep ? 3000 : 1600 })
+    .then(function(res){
+      /* 空回复兜底：多半是思考过程吃光了 max_tokens，关掉思考再问一次 */
+      if(res.text) return res;
+      return aiPost(cfg, msgs, { thinking:false, maxTokens:2000 }).then(function(r2){
+        if(r2.text && r2.text.trim()) return r2;
+        return { text:'', reasoning:res.reasoning || r2.reasoning, finish:res.finish || r2.finish, usage:res.usage || r2.usage, failed:true };
+      });
     })
-  })
-  .then(function(r){
-    if(!r.ok) return r.text().then(function(t){ throw new Error('HTTP ' + r.status + ' ' + t.slice(0, 120)); });
-    return r.json();
-  })
-  .then(function(j){
-    var c = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '（没有拿到回复）';
-    aiHistory.push({ role:'assistant', content:c });
-    if(wait){ wait.innerHTML = mdHtml(c); }
-    var log = $('#aiLog'); if(log) log.scrollTop = log.scrollHeight;
-  })
-  .catch(function(e){
-    if(wait && wait.parentNode) wait.parentNode.removeChild(wait);
-    aiError(String(e.message || e).slice(0, 160) + '（若是跨域/网络问题，换 DeepSeek 或硅基流动接口）');
-  })
-  .finally(function(){ aiBusy = false; });
+    .then(function(res){
+      var txt = (res.text || '').trim();
+      if(!txt){
+        var why = res.finish === 'length' ? '输出被 max_tokens 截断' : (res.finish ? ('finish_reason=' + res.finish) : '返回内容为空');
+        if(res.reasoning){
+          aiBubble('bot', '模型只输出了思考过程，没有给出最终答案（' + why + '）。下面是它的思考片段：\n\n' + res.reasoning.slice(-600));
+          aiError('没能拿到正式回答：' + why + '。可以换个问法，或把「🧠 深度思考」关掉再问。');
+        } else {
+          aiError('没能拿到回答：' + why + '。' + (res.usage ? ('（输出 tokens ' + (res.usage.completion_tokens || '?') + '）') : ''));
+        }
+        if(wait && wait.parentNode) wait.parentNode.removeChild(wait);
+        return;
+      }
+      aiHistory.push({ role:'assistant', content:txt });
+      if(wait){ wait.innerHTML = mdHtml(txt); }
+      var log = $('#aiLog'); if(log) log.scrollTop = log.scrollHeight;
+    })
+    .catch(function(e){
+      if(wait && wait.parentNode) wait.parentNode.removeChild(wait);
+      aiError(String(e.message || e).slice(0, 200));
+    })
+    .finally(function(){ aiBusy = false; });
 }
 
 /* ================= 跨老师对比卡（依据各家技能包自述的方法论提炼） ================= */
@@ -2933,7 +2972,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-10 · 01:10';
+var APP_BUILD = '2026-11-16 · 23:40';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
