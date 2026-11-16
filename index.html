@@ -1752,19 +1752,32 @@ const AI_KW = ['比重','增长率','增长量','基期','现期','平均数','�
   '翻译推理','真假话','加强','削弱','论证','类比','定义判断','图形推理','空间','位置','样式','数量规律',
   '工程','行程','排列组合','概率','容斥','牛吃草','年龄','和差倍','不定方程','浓度','赋值',
   '概括','归纳','分论点','贯彻执行','采分点','规范化','大作文','小题','材料','对策'];
-const AI_MODWORD = {'资料分析':'资料分析','比重':'资料分析','增长率':'资料分析','增长量':'资料分析','基期':'资料分析','现期':'资料分析','平均数':'资料分析','倍数':'资料分析','同比':'资料分析','环比':'资料分析',
-  '言语理解':'言语理解','主旨':'言语理解','意图':'言语理解','成语':'言语理解','填词':'言语理解','排序':'言语理解','片段':'言语理解',
-  '判断推理':'判断推理','逻辑':'判断推理','翻译':'判断推理','真假':'判断推理','加强':'判断推理','削弱':'判断推理','类比':'判断推理','定义':'判断推理','图形推理':'判断推理',
-  '数量关系':'数量关系','工程':'数量关系','行程':'数量关系','排列':'数量关系','概率':'数量关系','容斥':'数量关系','浓度':'数量关系',
+const AI_MODWORD = {'资料分析':'资料','比重':'资料','增长率':'资料','增长量':'资料','基期':'资料','现期':'资料','平均数':'资料','倍数':'资料','同比':'资料','环比':'资料','百分点':'资料','资料':'资料',
+  '言语理解':'言语','主旨':'言语','意图':'言语','成语':'言语','填词':'言语','排序':'言语','片段':'言语','言语':'言语',
+  '判断推理':'判断','逻辑':'判断','翻译':'判断','真假':'判断','加强':'判断','削弱':'判断','类比':'判断','定义':'判断','图形推理':'判断','判断':'判断',
+  '数量关系':'数量','工程':'数量','行程':'数量','排列':'数量','概率':'数量','容斥':'数量','浓度':'数量','数量':'数量',
   '申论':'申论','作文':'申论','概括':'申论','采分':'申论','贯彻执行':'申论','分论点':'申论','对策':'申论',
-  '常识':'常识','时政':'政治理论','政治理论':'政治理论','面试':'面试'};
+  '常识':'常识','时政':'政治','政治理论':'政治','面试':'面试','综应':'综应'};
+function modKey(m){
+  var s = String(m || '');
+  if(/资料/.test(s)) return '资料';
+  if(/言语/.test(s)) return '言语';
+  if(/判断|逻辑|图推/.test(s)) return '判断';
+  if(/数量/.test(s)) return '数量';
+  if(/申论|作文/.test(s)) return '申论';
+  if(/常识/.test(s)) return '常识';
+  if(/政治|时政/.test(s)) return '政治';
+  if(/面试/.test(s)) return '面试';
+  if(/综应|综B/i.test(s)) return '综应';
+  return s;
+}
 function aiQuestionMods(q){
   var ms = {};
   Object.keys(AI_MODWORD).forEach(function(k){
     if(q.indexOf(k) >= 0){ var m = AI_MODWORD[k]; ms[m] = (ms[m] || 0) + 1; }
   });
-  var pm = ({ data:'资料分析', verbal:'言语理解', logic:'判断推理', math:'数量关系',
-              'sl-small':'申论', 'sl-big':'申论', common:'常识', politics:'政治理论' })[currentPage];
+  var pm = ({ data:'资料', verbal:'言语', logic:'判断', math:'数量',
+              'sl-small':'申论', 'sl-big':'申论', common:'常识', politics:'政治' })[currentPage];
   if(pm) ms[pm] = (ms[pm] || 0) + 0.6;   // 当前页面只是弱信号
   return ms;
 }
@@ -1801,10 +1814,15 @@ function aiAutoSkills(q){
     if(!list || !list.length) return { text:'', names:[] };
     var mods = aiQuestionMods(q);
     var ranked = list.map(function(t){
-      var s = mods[t.mod] ? mods[t.mod] * 3 : 0;
-      if(s && String(t.name || '').indexOf(t.mod) >= 0) s += 1;
+      var mk = modKey(t.mod);
+      var s = mods[mk] ? mods[mk] * 3 : 0;
+      if(!s && mods[mk]) s = 1;
       return { t:t, s:s };
-    }).filter(function(x){ return x.s > 0; }).sort(function(a, b){ return b.s - a.s; }).slice(0, 2);
+    }).filter(function(x){ return x.s > 0; }).map(function(x){
+      var nm = String(x.t.name || '') + ' ' + String(x.t.desc || '');
+      AI_KW.forEach(function(k){ if(q.indexOf(k) >= 0 && nm.indexOf(k) >= 0) x.s += 0.5; });
+      return x;
+    }).sort(function(a, b){ return b.s - a.s; }).slice(0, 2);
     if(!ranked.length) return { text:'', names:[] };
     return Promise.all(ranked.map(function(p){
       return idbGet('skill:' + p.t.id).then(function(rec){ return { meta:p.t, text:(rec && rec.text) || '' }; });
@@ -3056,7 +3074,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-17 · 00:10';
+var APP_BUILD = '2026-11-17 · 00:30';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
