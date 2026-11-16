@@ -3074,7 +3074,7 @@ function adviceFor(cat){
   return m[cat] || '把同类错题放在一起，找出重复出错的"同一个动作"，只改这一点就够。';
 }
 var APP_URL = 'https://yuxinfu88.github.io/shangan-workbench/';
-var APP_BUILD = '2026-11-17 · 00:30';
+var APP_BUILD = '2026-11-17 · 00:45';
 function fmtMD(d){ return (d.getMonth()+1) + '/' + pad2(d.getDate()); }
 /* ISO(UTC) → 本机时区的 MM-DD HH:MM */
 function fmtLocalTime(iso){
@@ -4224,7 +4224,12 @@ document.addEventListener('click', function(e){
   if(act === 'ai-ask-skill'){
     var sk = skillList().filter(function(x){ return x.id === t.getAttribute('data-id'); })[0];
     if(!sk) return;
-    openTeacher('请按你的讲法，把「' + sk.title + '」这套方法再讲一遍，并给一个反例说明它什么时候不适用。');
+    var extra = '以下是你的方法卡「' + sk.title + '」（板块：' + (sk.cat || '') + '），回答时严格按卡的步骤讲，不要另立体系：\n'
+      + '适用场景：' + (sk.when || '') + '\n'
+      + '步骤：\n' + (sk.steps || []).map(function(x, i){ return (i + 1) + '. ' + x; }).join('\n')
+      + (sk.trap ? '\n常见坑：' + sk.trap : '')
+      + (sk.mantra ? '\n口诀：' + sk.mantra : '');
+    openTeacher('请按你的讲法，把「' + sk.title + '」这套方法再讲一遍，并给一个反例说明它什么时候不适用。', false, extra);
     return;
   }
   if(act === 'ai-send'){ aiSend(); return; }
